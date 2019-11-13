@@ -22,6 +22,7 @@ from .utils import (
     setup_teardown_s3_bucket,
     setup_teardown_s3_file,
     setup_teardown_sqs_queue,
+    sqs_queue_get_attributes,
     sqs_queue_send_message,
 )
 
@@ -52,6 +53,10 @@ TEST_IMAGE_FILEPATH = BASE_TEST_DIRECTORY / "data" / "images" / TEST_IMAGE_FILEN
 assert TEST_IMAGE_FILEPATH.exists()
 
 TEST_IMAGE_S3URI = f"s3://{TEST_BUCKETNAME}/{TEST_IMAGE_FILENAME}"
+
+
+class DummyException(Exception):
+    pass
 
 
 @setup_teardown_s3_file(local_filepath=TEST_IMAGE_FILEPATH, bucket=TEST_BUCKETNAME, key=TEST_IMAGE_FILENAME)
@@ -390,3 +395,57 @@ def test_registered_context_managers():
 
     supported_output_context_managers = ("S3BucketCsvFileOutputCtxManager", "SQSRecordOutputCtxManager", "DynamodbOutputCtxManager")
     assert all(configured in supported_output_context_managers for configured in OUTPUT_CONTEXT_MANAGERS)
+
+
+@setup_teardown_s3_file(local_filepath=TEST_IMAGE_FILEPATH, bucket=TEST_BUCKETNAME, key=TEST_IMAGE_FILENAME)
+def test_input_handler_sqsrecords3inputimagectxmanager_no_delete_sqs_messages_on_exception():
+    image_found = False
+
+    request = {
+        "s3_uri": TEST_IMAGE_S3URI,
+        "collection_id": "events:1234:photographers:5678",
+        "image_id": None,  # populated below
+        "request_id": "request:{request_id}",
+    }
+
+    queue_url = _create_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME, purge=True)
+    sqs_message_count = 10
+    records_per_message = 2
+    for i in range(sqs_message_count):
+        records = []
+        # add 2 requests and send
+        for message_request_count in range(records_per_message):
+            request["image_id"] = f"images:{message_request_count}"
+            request["request_id"] = request["request_id"].format(request_id=i)
+            records.append(request)
+        assert len(records) == records_per_message
+
+        # add dummy records to input queue
+        sqs_queue_send_message(queue_name=TEST_INPUT_SQS_QUEUENAME, message_body=records)
+
+    # confirm that messages are in queue
+    response = sqs_queue_get_attributes(queue_name=TEST_INPUT_SQS_QUEUENAME)
+    assert int(response["Attributes"]["ApproximateNumberOfMessages"]) == sqs_message_count
+
+    desired_processing_requests = sqs_message_count * records_per_message
+    input_settings = {"sqs_queue_url": queue_url, "max_processing_requests": desired_processing_requests}
+    expected_keys = ("s3_uri", "collection_id", "image_id", "request_id")
+
+    expected_count = desired_processing_requests  # defined by 'max_processing_requests'
+    try:
+        with SQSRecordS3InputImageCtxManager(**input_settings) as s3images:
+            actual_count = 0
+            for image, info in s3images.get_records():
+                assert image.any()
+                assert info
+                assert all(k in info for k in expected_keys)
+                actual_count += 1
+                if actual_count >= desired_processing_requests - 2:
+                    raise DummyException
+    except DummyException:
+        pass
+
+    # confirm that messages are NOT deleted and still available in queue
+    # --> Messages returned to QUEUE
+    response = sqs_queue_get_attributes(queue_name=TEST_INPUT_SQS_QUEUENAME)
+    assert int(response["Attributes"]["ApproximateNumberOfMessages"]) == sqs_message_count

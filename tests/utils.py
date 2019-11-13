@@ -21,6 +21,11 @@ def sqs_queue_send_message(queue_name, message_body):
     return queue_url
 
 
+def sqs_queue_get_attributes(queue_name) -> dict:
+    queue_url = SQS.get_queue_url(QueueName=queue_name)["QueueUrl"]
+    return SQS.get_queue_attributes(QueueUrl=queue_url, AttributeNames=["All"])
+
+
 def _create_bucket(bucket):
     S3.create_bucket(Bucket=bucket)
 
@@ -70,8 +75,10 @@ def setup_teardown_s3_bucket(bucket):
     return decorator
 
 
-def _create_sqs_queue(queue_name):
+def _create_sqs_queue(queue_name: str, purge: bool = False) -> str:
     response = SQS.create_queue(QueueName=queue_name)
+    if purge:
+        SQS.purge_queue(QueueUrl=response["QueueUrl"])
     return response["QueueUrl"]
 
 

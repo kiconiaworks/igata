@@ -128,7 +128,14 @@ class SQSRecordS3InputImageCtxManager(InputImageCtxManagerBase):
     def __enter__(self):
         return self
 
-    def __exit__(self, *args, **kwargs):
-        # deleting sqs messages from queue
-        for message in self.processed_messages:
-            message.delete()
+    def __exit__(self, exception_type, exception_value, traceback):
+        if all(o is None for o in (exception_type, exception_value, traceback)):
+            logger.debug("deleting (SQS) self.processed_messages...")
+            for message in self.processed_messages:
+                message.delete()
+        else:
+            logger.error("exception occurred, SQS messages NOT deleted!")
+            if self.processed_messages:
+                logger.info(f"changing visibility for self.processed_messages: {len(self.processed_messages)}")
+                for message in self.processed_messages:
+                    message.change_visibility(VisibilityTimeout=settings.SQS_VISIBILITYTIMEOUT_SECONDS_ON_EXCEPTION)
