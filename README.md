@@ -125,14 +125,25 @@ make mypy
 
 This project uses [pytest](https://docs.pytest.org/en/latest/contents.html) for running testcases.
 
-> Tests are dependent on a running redis instance, see [Run redis in docker](#run-redis-in-docker)
-> Note: For testing not to interfere with other redis containers/instances test cases expect redis on a non-standard port.
-> See test code for details
+> NOTE: localstack is used for local aws service tests
+
+`.env` for local testing:
+```
+S3_ENDPOINT=http://localhost:4572
+SQS_ENDPOINT=http://localhost:4576
+SQS_OUTPUT_QUEUE_NAME=test-output-queue
+SNS_ENDPOINT=http://localhost:4575
+DYNAMODB_ENDPOINT=http://localhost:4569
+LOG_LEVEL=DEBUG
+SQS_VISIBILITYTIMEOUT_SECONDS_ON_EXCEPTION=0
+```
+
 
 Tests cases are written and placed in the `tests` directory.
 
 To run the tests use the following command:
 ```
+docker-compose up -d
 pytest -v
 ```
 
