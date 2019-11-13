@@ -1,0 +1,28 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+boto3 = "*"
+pytz = "*"
+psycopg2-binary = "*"
+imageio = "*"
+retry = "*"
+docker = "*"
+rx = "~=3.0.0b4"
+
+[dev-packages]
+"flake8" = "*"
+pylint = "*"
+mypy = "*"
+pytest = "*"
+coverage = "*"
+pydocstyle = "*"
+requests-mock = "*"
+
+[requires]
+python_version = "3.7"
+
+[pipenv]
+allow_prereleases = true
