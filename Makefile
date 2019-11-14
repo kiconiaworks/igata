@@ -29,7 +29,7 @@ mypy:
 
 ## Run tests (without coverage)
 test:
-	pipenv run pytest -v
+	PYTHONPATH=./tests:$PYTHONPATH pipenv run pytest -v
 
 ## run tests with localstack
 test-local:
