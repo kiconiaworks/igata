@@ -127,6 +127,11 @@ def _dynamodb_create_table(tablename="test-table", fields=DEFAULT_FIELDS):
     return table
 
 
+def _get_dynamodb_table_resource(tablename="test-table"):
+    table = DYANMODB.Table(tablename)
+    return table
+
+
 def _dynamodb_delete_table(tablename="test-table"):
     table = DYANMODB.Table(tablename)
     table.delete()
