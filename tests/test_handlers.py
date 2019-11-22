@@ -526,6 +526,11 @@ def test_output_handler_dynamodboutputctxmanager_duplicate_record_overwrite():
         results_table = _get_dynamodb_table_resource(results_tablename)
         results_record_count = results_table.item_count
 
+        response = results_table.scan()
+        result_items = response["Items"]
+        assert len(result_items) == expected_results_record_count
+        initial_result_item = result_items[0]
+
         request_record_count = request_table.item_count
 
         # duplicate request put_records
@@ -537,6 +542,12 @@ def test_output_handler_dynamodboutputctxmanager_duplicate_record_overwrite():
         post_duplicate_results_record_count = results_table.item_count
         assert post_duplicate_results_record_count == results_record_count
         assert post_duplicate_results_record_count == expected_results_record_count
+
+        response = results_table.scan()
+        result_items = response["Items"]
+        assert len(result_items) == expected_results_record_count
+        duplicate_result_item = result_items[0]
+        assert duplicate_result_item == initial_result_item
 
         request_table = _get_dynamodb_table_resource(requests_tablename)
         post_duplicate_request_record_count = request_table.item_count
