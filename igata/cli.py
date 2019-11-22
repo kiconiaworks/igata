@@ -2,9 +2,10 @@ import importlib
 import logging
 import os
 import sys
+from collections import Counter
 from distutils.util import strtobool
 from pathlib import Path
-from typing import List
+from typing import List, Type
 
 import rx
 import rx.operators as ops
@@ -25,6 +26,8 @@ from .handlers import (
     OUTPUT_CONTEXT_MANAGERS,
     OUTPUT_CTXMGR_ENVAR_PREFIX,
 )
+from .handlers.aws.input import InputImageCtxManagerBase
+from .handlers.aws.output import OutputCtxManagerBase
 from .predictors import PredictorBase
 from .runners.executors import PredictionExecutor
 
@@ -60,8 +63,8 @@ DEFAULT_AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING = "True"
 AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING = strtobool(os.getenv("AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING", DEFAULT_AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING))
 
 
-def execute_prediction(predictor, input_ctx_manager, input_settings, output_ctx_manager, output_settings, inputs: List[str] = None):
-    """Run prediction using the user-defined predictor object and defined input/output context managers"""
+def execute_prediction(predictor, input_ctx_manager, input_settings, output_ctx_manager, output_settings, inputs: List[str] = None) -> Counter:
+    """Run prediction using the user-defined predictor object and defined input/output context managers."""
     executor = PredictionExecutor(
         predictor=predictor,
         input_ctx_manager=input_ctx_manager,
@@ -73,13 +76,12 @@ def execute_prediction(predictor, input_ctx_manager, input_settings, output_ctx_
     return summary
 
 
-def find_predictor_class(module_name, predictor_class_name):
+def find_predictor_class(module_name: str, predictor_class_name: str) -> Type[PredictorBase]:
     """
     Load the class defined by the predictor_class_name from the given module.
 
     :param module_name: In format 'package.module'
     :param predictor_class_name: class in the given module that subclasses PredictorBase
-    :return:
     """
     logger.info(f"Importing module({module_name})...")
     module = importlib.import_module(module_name)
@@ -90,7 +92,7 @@ def find_predictor_class(module_name, predictor_class_name):
     return predictor_class
 
 
-def collect_ctxmgr_settings(input_ctx_manager, output_ctx_manager) -> dict:
+def collect_ctxmgr_settings(input_ctx_manager: Type[InputImageCtxManagerBase], output_ctx_manager: Type[OutputCtxManagerBase]) -> dict:
     """Collect context manager settings from environment variables"""
     assert input_ctx_manager
     assert output_ctx_manager
@@ -131,7 +133,7 @@ def collect_ctxmgr_settings(input_ctx_manager, output_ctx_manager) -> dict:
     return settings
 
 
-def input_contenxt_manager(value):
+def input_contenxt_manager(value) -> Type[InputImageCtxManagerBase]:
     """argparse type for converting string into the ContextManger class"""
     ctxmgr = INPUT_CONTEXT_MANAGERS.get(value, None)
     if not ctxmgr:
@@ -139,7 +141,7 @@ def input_contenxt_manager(value):
     return ctxmgr
 
 
-def output_context_manager(value):
+def output_context_manager(value) -> Type[OutputCtxManagerBase]:
     """argparse type for converting string into the ContextManger class"""
     ctxmgr = OUTPUT_CONTEXT_MANAGERS.get(value, None)
     if not ctxmgr:
