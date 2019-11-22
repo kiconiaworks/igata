@@ -83,7 +83,31 @@ Available Output Context Manager(s):
         - `REQUESTS_TABLE_HASHKEY_KEYNAME`: (str) field name of the dynamodb REQUESTS Table hash-key. 
         - `REQUESTS_TABLE_RESULTS_KEYNAME`: (str) field name that defines the JSON results field content
         - `OUTPUT_CTXMGR_REQUESTS_TABLENAME`: (str) Dynamodb REQUESTS Table name, 'state' field will be updated
-        - `OUTPUT_CTXMGR_RESULTS_TABLENAME`: (str) Dynamodb RESULTS Table name.  Will be populated with flattened results of the model result dictionary  
+        - `OUTPUT_CTXMGR_RESULTS_TABLENAME`: (str) Dynamodb RESULTS Table name.  Will be populated with flattened results of the model result dictionary
+
+#### DynamodbOutputCtxManager Table(s) Structure
+
+##### REQUESTS Table
+
+| AttributeName | Type | Is HASHKEY | Is RANGEKEY | GSI HASH_KEY | GSI RANGEKEY |
+|---------------|:----:|:----------:|:-----------:|:------------:|:------------:|
+| request_id    | S    | ○          | ✖           | ○            | ✖            |
+| collection_id | S    | ✖          | ✖           | ✖            | ✖            |
+| state         | S    | ✖          | ✖           | ✖            | ○            |
+
+> GSI projection_type = ALL
+
+##### RESULTS Table
+
+| AttributeName | Type | Is HASHKEY | Is RANGEKEY | GSI HASH_KEY | GSI RANGEKEY |
+|---------------|:----:|:----------:|:-----------:|:------------:|:------------:|
+| hashkey       | S    | ○          | ✖           | ✖            | ✖            |
+| s3_uri        | S    | ✖          | ○           | ✖            | ✖            |
+| collection_id | S    | ✖          | ✖           | ○            | ✖            |
+| valid_number  | S    | ✖          | ✖           | ✖            | ○            |
+
+> GSI projection_type = ALL
+
 
 ## Local Development
 
