@@ -2,6 +2,7 @@ import datetime
 import json
 import logging
 import sys
+from decimal import Decimal
 from pathlib import Path
 
 import boto3
@@ -503,6 +504,22 @@ def test_output_handler_dynamodboutputctxmanager_duplicate_record_overwrite():
             "result": result,
             "errors": None,
         }
+        # flattened result
+        expected_result = {
+            "position__y1": Decimal("2"),
+            "numbers__digit_ltsm": "09282",
+            "position__x1": Decimal("1"),
+            "position__y2": Decimal("13"),
+            "guest_runner_score": Decimal("0.77"),
+            "position__x2": Decimal("88"),
+            "s3_uri": "s3://bucket/key",
+            "numbers__digit_fc": "09232",
+            "is_valid": False,
+            "selection_score": Decimal("0.22"),
+            "detection_score": Decimal("0.77"),
+            "request_id": "rid222",
+        }
+
         db_item_no_result = {
             "s3_uri": "s3://bucket/key2",
             "request_id": "rid223",
@@ -531,6 +548,11 @@ def test_output_handler_dynamodboutputctxmanager_duplicate_record_overwrite():
         assert len(result_items) == expected_results_record_count
         initial_result_item = result_items[0]
 
+        for key, value in expected_result.items():
+            if key in ("created_at_timestamp", "hashkey"):
+                continue
+            assert initial_result_item[key] == value
+
         request_record_count = request_table.item_count
 
         # duplicate request put_records
@@ -548,6 +570,11 @@ def test_output_handler_dynamodboutputctxmanager_duplicate_record_overwrite():
         assert len(result_items) == expected_results_record_count
         duplicate_result_item = result_items[0]
         assert duplicate_result_item == initial_result_item
+
+        for key, value in expected_result.items():
+            if key in ("created_at_timestamp", "hashkey"):
+                continue
+            assert duplicate_result_item[key] == value
 
         request_table = _get_dynamodb_table_resource(requests_tablename)
         post_duplicate_request_record_count = request_table.item_count
