@@ -221,11 +221,11 @@
         },
         "rx": {
             "hashes": [
-                "sha256:69e7dc76a4391910972f20316f9ccd4664b9694f21dace5a16519d56869e5d35",
-                "sha256:7ad01944a6b86ed2ef9f38d785c61d5074c40bbb0d60c72c55aaf6da13af1475"
+                "sha256:30aacb634ee3ec16473cd38ff0725c28b5ee6fb61e39a24c1cccef5b4d7c4077",
+                "sha256:c3ca30ff6b4ad396e939ea3b1252e8854fdc00c36fecbe9b0d5763b7f39808b8"
             ],
             "index": "pypi",
-            "version": "==3.0.0"
+            "version": "==3.0.0b4"
         },
         "s3transfer": {
             "hashes": [
