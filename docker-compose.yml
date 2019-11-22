@@ -1,27 +1,17 @@
-
 version: '2.1'
 
 services:
   localstack:
-    image: localstack/localstack:0.10.2
-      container_name: "igata-localstack-0.10.2"
+    image: localstack/localstack:0.10.3
+    container_name: "igata-localstack-0.10.3"
     ports:
-      - "4567-4584:4567-4584"
-      - "${PORT_WEB_UI-8080}:${PORT_WEB_UI-8080}"
+      - "4567-4593:4567-4593"
     environment:
-      - SERVICES=${SERVICES- }
-      - DEBUG=${DEBUG- }
-      - DATA_DIR=${DATA_DIR- }
-      - PORT_WEB_UI=${PORT_WEB_UI- }
-      - LAMBDA_EXECUTOR=${LAMBDA_EXECUTOR- }
-      - KINESIS_ERROR_PROBABILITY=${KINESIS_ERROR_PROBABILITY- }
-      - DOCKER_HOST=unix:///var/run/docker.sock
-    volumes:
-      - "${TMPDIR:-/tmp/localstack}:/tmp/localstack"
-      - "/var/run/docker.sock:/var/run/docker.sock"
+      - SERVICES=s3,sqs,sns,dynamodb
+
   wait:
     image: waisbrot/wait
-    links:
+    depends_on:
       - localstack
     environment:
-      - TARGETS=localstack:4572
+      - TARGETS=localstack:4572,localstack:4575

@@ -9,7 +9,6 @@ from hashlib import md5
 from typing import Generator, List, Tuple
 
 import boto3
-import pytz
 from botocore.config import Config
 
 from .... import settings
@@ -90,7 +89,9 @@ def update_item(item: dict, tablename: str) -> dict:
                 ":state": item[RESULTS_TABLE_STATE_FIELDNAME],
                 f":{REQUESTS_TABLE_RESULTS_KEYNAME}": item[REQUESTS_TABLE_RESULTS_KEYNAME],
                 ":errors": errors_field_value,
-                ":updated_at_timestamp": item.get("updated_at_timestamp", int(datetime.datetime.utcnow().replace(tzinfo=pytz.UTC).timestamp())),
+                ":updated_at_timestamp": item.get(
+                    "updated_at_timestamp", int(datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).timestamp())
+                ),
             },
         )
     except Exception as e:
@@ -156,7 +157,7 @@ class DynamodbOutputCtxManager(OutputCtxManagerBase):
 
     def put_records(self, records: List[dict], **kwargs) -> dict:
         """
-        Define method to put data to the desired output target
+        Puts records to the desired output target
 
         Expects 2 tables:
            - Original requests table

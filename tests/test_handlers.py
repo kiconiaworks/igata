@@ -2,6 +2,7 @@ import datetime
 import json
 import logging
 import sys
+from decimal import Decimal
 from pathlib import Path
 
 import boto3
@@ -18,10 +19,12 @@ from .utils import (
     _delete_sqs_queue,
     _dynamodb_create_table,
     _dynamodb_delete_table,
+    _get_dynamodb_table_resource,
     _get_queue_url,
     setup_teardown_s3_bucket,
     setup_teardown_s3_file,
     setup_teardown_sqs_queue,
+    sqs_queue_get_attributes,
     sqs_queue_send_message,
 )
 
@@ -52,6 +55,10 @@ TEST_IMAGE_FILEPATH = BASE_TEST_DIRECTORY / "data" / "images" / TEST_IMAGE_FILEN
 assert TEST_IMAGE_FILEPATH.exists()
 
 TEST_IMAGE_S3URI = f"s3://{TEST_BUCKETNAME}/{TEST_IMAGE_FILENAME}"
+
+
+class DummyException(Exception):
+    pass
 
 
 @setup_teardown_s3_file(local_filepath=TEST_IMAGE_FILEPATH, bucket=TEST_BUCKETNAME, key=TEST_IMAGE_FILENAME)
@@ -390,3 +397,191 @@ def test_registered_context_managers():
 
     supported_output_context_managers = ("S3BucketCsvFileOutputCtxManager", "SQSRecordOutputCtxManager", "DynamodbOutputCtxManager")
     assert all(configured in supported_output_context_managers for configured in OUTPUT_CONTEXT_MANAGERS)
+
+
+@setup_teardown_s3_file(local_filepath=TEST_IMAGE_FILEPATH, bucket=TEST_BUCKETNAME, key=TEST_IMAGE_FILENAME)
+def test_input_handler_sqsrecords3inputimagectxmanager_no_delete_sqs_messages_on_exception():
+    image_found = False
+
+    request = {
+        "s3_uri": TEST_IMAGE_S3URI,
+        "collection_id": "events:1234:photographers:5678",
+        "image_id": None,  # populated below
+        "request_id": "request:{request_id}",
+    }
+
+    queue_url = _create_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME, purge=True)
+    sqs_message_count = 10
+    records_per_message = 2
+    for i in range(sqs_message_count):
+        records = []
+        # add 2 requests and send
+        for message_request_count in range(records_per_message):
+            request["image_id"] = f"images:{message_request_count}"
+            request["request_id"] = request["request_id"].format(request_id=i)
+            records.append(request)
+        assert len(records) == records_per_message
+
+        # add dummy records to input queue
+        sqs_queue_send_message(queue_name=TEST_INPUT_SQS_QUEUENAME, message_body=records)
+
+    # confirm that messages are in queue
+    response = sqs_queue_get_attributes(queue_name=TEST_INPUT_SQS_QUEUENAME)
+    assert int(response["Attributes"]["ApproximateNumberOfMessages"]) == sqs_message_count
+
+    desired_processing_requests = sqs_message_count * records_per_message
+    input_settings = {"sqs_queue_url": queue_url, "max_processing_requests": desired_processing_requests}
+    expected_keys = ("s3_uri", "collection_id", "image_id", "request_id")
+
+    expected_count = desired_processing_requests  # defined by 'max_processing_requests'
+    try:
+        with SQSRecordS3InputImageCtxManager(**input_settings) as s3images:
+            actual_count = 0
+            for image, info in s3images.get_records():
+                assert image.any()
+                assert info
+                assert all(k in info for k in expected_keys)
+                actual_count += 1
+                if actual_count >= desired_processing_requests - 2:
+                    raise DummyException
+    except DummyException:
+        pass
+
+    # confirm that messages are NOT deleted and still available in queue
+    # --> Messages returned to QUEUE
+    response = sqs_queue_get_attributes(queue_name=TEST_INPUT_SQS_QUEUENAME)
+    assert int(response["Attributes"]["ApproximateNumberOfMessages"]) == sqs_message_count
+
+
+def test_output_handler_dynamodboutputctxmanager_duplicate_record_overwrite():
+    requests_tablename = "txessutsasitsassdsxz-srequests"
+    results_tablename = "texsstisissdsdsstxz-sresults"
+    requests_fields = {"request_id": ("S", "HASH")}
+
+    results_fields = {"hashkey": ("S", "HASH"), "s3_uri": ("S", "RANGE")}
+
+    now = datetime.datetime.now()
+    try:
+        request_table = _dynamodb_create_table(requests_tablename, requests_fields)
+        _ = _dynamodb_create_table(results_tablename, results_fields)
+        collection_id = "c1:i3:p3"
+        request_item = {
+            "s3_uri": "s3://bucket/key",
+            "collection_id": collection_id,
+            "image_id": "image:33",
+            "request_id": "rid222",
+            "created_at_timestamp": int(now.timestamp()),
+            "state": "queued",
+            "result": None,
+        }
+        request_table.put_item(Item=request_item)
+        request_item_no_result = {
+            "s3_uri": "s3://bucket/key2",
+            "collection_id": collection_id,
+            "image_id": "image:332",
+            "request_id": "rid223",
+            "created_at_timestamp": int(now.timestamp()),
+            "state": "queued",
+            "result": None,
+        }
+        request_table.put_item(Item=request_item_no_result)
+
+        result = [
+            {
+                "numbers": {"digit_fc": "09232", "digit_ltsm": "09282"},
+                "position": {"x1": 1, "y1": 2, "x2": 88, "y2": 13},
+                "detection_score": 0.77,
+                "selection_score": 0.22,
+                "is_valid": False,
+                "guest_runner_score": 0.77,
+            }
+        ]
+
+        db_item_with_result = {
+            "s3_uri": "s3://bucket/key",
+            "request_id": "rid222",
+            "created_at_timestamp": int(now.timestamp()),
+            "result": result,
+            "errors": None,
+        }
+        # flattened result
+        expected_result = {
+            "position__y1": Decimal("2"),
+            "numbers__digit_ltsm": "09282",
+            "position__x1": Decimal("1"),
+            "position__y2": Decimal("13"),
+            "guest_runner_score": Decimal("0.77"),
+            "position__x2": Decimal("88"),
+            "s3_uri": "s3://bucket/key",
+            "numbers__digit_fc": "09232",
+            "is_valid": False,
+            "selection_score": Decimal("0.22"),
+            "detection_score": Decimal("0.77"),
+            "request_id": "rid222",
+        }
+
+        db_item_no_result = {
+            "s3_uri": "s3://bucket/key2",
+            "request_id": "rid223",
+            "created_at_timestamp": int(now.timestamp()),
+            "result": None,
+            "errors": None,
+        }
+
+        results_table = _get_dynamodb_table_resource(results_tablename)
+        initial_results_record_count = results_table.item_count
+        assert initial_results_record_count == 0
+
+        output_settings = {"results_tablename": results_tablename, "requests_tablename": requests_tablename}
+        db_items = [db_item_with_result, db_item_no_result]
+        expected_results_record_count = 1  # db_item_no_result not saved as result
+        with DynamodbOutputCtxManager(**output_settings) as dynamodb:
+            summary = dynamodb.put_records(db_items)
+            assert summary
+
+        # check the results table values
+        results_table = _get_dynamodb_table_resource(results_tablename)
+        results_record_count = results_table.item_count
+
+        response = results_table.scan()
+        result_items = response["Items"]
+        assert len(result_items) == expected_results_record_count
+        initial_result_item = result_items[0]
+
+        for key, value in expected_result.items():
+            if key in ("created_at_timestamp", "hashkey"):
+                continue
+            assert initial_result_item[key] == value
+
+        request_record_count = request_table.item_count
+
+        # duplicate request put_records
+        with DynamodbOutputCtxManager(**output_settings) as dynamodb:
+            summary = dynamodb.put_records(db_items)
+            assert summary
+
+        results_table = _get_dynamodb_table_resource(results_tablename)
+        post_duplicate_results_record_count = results_table.item_count
+        assert post_duplicate_results_record_count == results_record_count
+        assert post_duplicate_results_record_count == expected_results_record_count
+
+        response = results_table.scan()
+        result_items = response["Items"]
+        assert len(result_items) == expected_results_record_count
+        duplicate_result_item = result_items[0]
+        assert duplicate_result_item == initial_result_item
+
+        for key, value in expected_result.items():
+            if key in ("created_at_timestamp", "hashkey"):
+                continue
+            assert duplicate_result_item[key] == value
+
+        request_table = _get_dynamodb_table_resource(requests_tablename)
+        post_duplicate_request_record_count = request_table.item_count
+        assert post_duplicate_request_record_count == request_record_count
+
+    except Exception as e:
+        raise e
+    finally:
+        _dynamodb_delete_table(requests_tablename)
+        _dynamodb_delete_table(results_tablename)

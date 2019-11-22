@@ -83,7 +83,31 @@ Available Output Context Manager(s):
         - `REQUESTS_TABLE_HASHKEY_KEYNAME`: (str) field name of the dynamodb REQUESTS Table hash-key. 
         - `REQUESTS_TABLE_RESULTS_KEYNAME`: (str) field name that defines the JSON results field content
         - `OUTPUT_CTXMGR_REQUESTS_TABLENAME`: (str) Dynamodb REQUESTS Table name, 'state' field will be updated
-        - `OUTPUT_CTXMGR_RESULTS_TABLENAME`: (str) Dynamodb RESULTS Table name.  Will be populated with flattened results of the model result dictionary  
+        - `OUTPUT_CTXMGR_RESULTS_TABLENAME`: (str) Dynamodb RESULTS Table name.  Will be populated with flattened results of the model result dictionary
+
+#### DynamodbOutputCtxManager Table(s) Structure
+
+##### REQUESTS Table
+
+| AttributeName | Type | Is HASHKEY | Is RANGEKEY | GSI HASH_KEY | GSI RANGEKEY |
+|---------------|:----:|:----------:|:-----------:|:------------:|:------------:|
+| request_id    | S    | ○          | ✖           | ○            | ✖            |
+| collection_id | S    | ✖          | ✖           | ✖            | ✖            |
+| state         | S    | ✖          | ✖           | ✖            | ○            |
+
+> GSI projection_type = ALL
+
+##### RESULTS Table
+
+| AttributeName | Type | Is HASHKEY | Is RANGEKEY | GSI HASH_KEY | GSI RANGEKEY |
+|---------------|:----:|:----------:|:-----------:|:------------:|:------------:|
+| hashkey       | S    | ○          | ✖           | ✖            | ✖            |
+| s3_uri        | S    | ✖          | ○           | ✖            | ✖            |
+| collection_id | S    | ✖          | ✖           | ○            | ✖            |
+| valid_number  | S    | ✖          | ✖           | ✖            | ○            |
+
+> GSI projection_type = ALL
+
 
 ## Local Development
 
@@ -125,14 +149,25 @@ make mypy
 
 This project uses [pytest](https://docs.pytest.org/en/latest/contents.html) for running testcases.
 
-> Tests are dependent on a running redis instance, see [Run redis in docker](#run-redis-in-docker)
-> Note: For testing not to interfere with other redis containers/instances test cases expect redis on a non-standard port.
-> See test code for details
+> NOTE: localstack is used for local aws service tests
+
+`.env` for local testing:
+```
+S3_ENDPOINT=http://localhost:4572
+SQS_ENDPOINT=http://localhost:4576
+SQS_OUTPUT_QUEUE_NAME=test-output-queue
+SNS_ENDPOINT=http://localhost:4575
+DYNAMODB_ENDPOINT=http://localhost:4569
+LOG_LEVEL=DEBUG
+SQS_VISIBILITYTIMEOUT_SECONDS_ON_EXCEPTION=0
+```
+
 
 Tests cases are written and placed in the `tests` directory.
 
 To run the tests use the following command:
 ```
+docker-compose up -d
 pytest -v
 ```
 
