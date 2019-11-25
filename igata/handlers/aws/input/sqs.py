@@ -27,7 +27,7 @@ SQS = boto3.resource("sqs", endpoint_url=settings.SQS_ENDPOINT, region_name=sett
 
 
 class SQSRecordS3InputImageCtxManager(InputImageCtxManagerBase):
-    """get_records() is callled by resutls will use `put_records()` to output to the envar defined SQS Queue"""
+    """get_records() is called by results will use `put_records()` to output to the envar defined SQS Queue"""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
