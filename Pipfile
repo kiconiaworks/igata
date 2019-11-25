@@ -4,12 +4,12 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-boto3 = "==1.10.23"
+boto3 = "*"
 psycopg2-binary = "==2.8.4"
 imageio = "==2.6.1"
 retry = "*"
 docker = "*"
-rx = "~=3.0.0b4"
+rx = "==3.0.0b4"
 
 [dev-packages]
 "flake8" = "*"
