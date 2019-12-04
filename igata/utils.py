@@ -5,7 +5,7 @@ import logging
 import os
 import time
 import urllib
-from collections import Hashable
+from collections.abc import Hashable
 from decimal import Decimal
 from gzip import GzipFile
 from hashlib import md5
