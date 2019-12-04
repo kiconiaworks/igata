@@ -159,15 +159,8 @@ class SQSRecordS3InputCSVCtxManager(InputImageCtxManagerBase):
         required = ("sqs_queue_url",)
         return required
 
-    def get_records(self, *args, **kwargs) -> Generator[Tuple[np.array, dict], None, None]:
-        """
-        Receive available messages from queue upto MAX_PROCESSING_REQUESTS
-
-        .. note::
-
-            If a single message causes the len() > MAX_PROCESSING_REQUESTS, all requests in the message will be processed/included.
-
-        """
+    def _get_processing_requests(self) -> Union[list, dict]:
+        """Collect processing requests from SQS Queue"""
         queue = SQS.Queue(url=self.sqs_queue_url)
         all_processing_requests: Union[list, dict] = []  # SQS messages (should be a *list*, may be given an single dict)
 
@@ -203,16 +196,27 @@ class SQSRecordS3InputCSVCtxManager(InputImageCtxManagerBase):
                     f"self.max_processing_requests[{self.max_processing_requests}], breaking..."
                 )
                 break
+        return all_processing_requests
 
-        logger.info(f"Total Processing Requests [len(all_processing_request)]: {len(all_processing_requests)}")
-        if all_processing_requests:
-            if not isinstance(all_processing_requests, Iterable):
-                logger.warning(f"SQS MessageBody not list!!! Putting object in list: {all_processing_requests}")
-                all_processing_requests = [all_processing_requests]
+    def get_records(self, *args, **kwargs) -> Generator[Tuple[np.array, dict], None, None]:
+        """
+        Receive available messages from queue upto MAX_PROCESSING_REQUESTS
+
+        .. note::
+
+            If a single message causes the len() > MAX_PROCESSING_REQUESTS, all requests in the message will be processed/included.
+
+        """
+        processing_requests = self._get_processing_requests()
+        logger.info(f"Total Processing Requests [len(all_processing_request)]: {len(processing_requests)}")
+        if processing_requests:
+            if not isinstance(processing_requests, Iterable):
+                logger.warning(f"SQS MessageBody not list!!! Putting object in list: {processing_requests}")
+                processing_requests = [processing_requests]
 
             args = []
             requests_mapping = {}
-            for request in all_processing_requests:
+            for request in processing_requests:
                 for s3uri_key in self.s3uri_keys:
                     request["current_s3uri_key"] = s3uri_key
                     s3uri = request[s3uri_key]
