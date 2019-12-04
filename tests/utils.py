@@ -26,6 +26,14 @@ def sqs_queue_get_attributes(queue_name) -> dict:
     return SQS.get_queue_attributes(QueueUrl=queue_url, AttributeNames=["All"])
 
 
+def reset_bucket(bucket):
+    try:
+        _delete_bucket(bucket)
+    except:
+        pass
+    _create_bucket(bucket)
+
+
 def _create_bucket(bucket):
     S3.create_bucket(Bucket=bucket)
 

@@ -1,3 +1,4 @@
+import csv
 import datetime
 import json
 import logging
@@ -6,8 +7,10 @@ import time
 import urllib
 from collections import Hashable
 from decimal import Decimal
+from gzip import GzipFile
 from hashlib import md5
-from typing import Generator, List, Tuple, Union
+from io import BytesIO, StringIO
+from typing import Generator, List, Optional, Tuple, Union
 from urllib.error import HTTPError
 from urllib.parse import unquote, urlparse
 from uuid import NAMESPACE_URL, uuid5
@@ -81,11 +84,11 @@ def flatten(nested_object, keystring="", allow_null_strings=True, separator="__"
             yield keystring, nested_object
 
 
-def prepare_images(bucket, key) -> Tuple[Tuple[str, str], np.array, float, str]:
+def prepare_images(bucket, key) -> Tuple[Tuple[str, str], np.array, float, Optional[str]]:
     """
     Read the given s3 key into a numpy array.from retry.api import retry_call
     """
-    error = None
+    error_message = None
     key = unquote(key)
     url = S3.generate_presigned_url(ClientMethod="get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=3600, HttpMethod="GET")
 
@@ -94,16 +97,64 @@ def prepare_images(bucket, key) -> Tuple[Tuple[str, str], np.array, float, str]:
         image = retry_call(imageio.imread, fargs=[url], tries=10)[:, :, :3]
     except HTTPError as e:
         logger.exception(e)
-        logger.error(f"Exception while processing image(s3://{bucket}/{key}): ({e.code}) {e.reason}")
+        error_message = f"Exception while processing image(s3://{bucket}/{key}): ({e.code}) {e.reason}"
+        logger.error(error_message)
         image = np.array([])
     except ValueError as e:
         logger.exception(e)
-        logger.error(f"Exception while processing image(s3://{bucket}/{key}): {e.args}")
+        error_message = f"Exception while processing image(s3://{bucket}/{key}): {e.args}"
+        logger.error(error_message)
         image = np.array([])
     end = time.time()
     download_time = end - start
 
-    return (bucket, key), image, download_time, error
+    return (bucket, key), image, download_time, error_message
+
+
+def prepare_csv(
+    bucket: str, key: str, reader: Union[csv.reader, csv.DictReader] = csv.DictReader, dialect: str = settings.CSV_DIALECT, encoding: str = "utf8"
+) -> Tuple[Tuple[str, str], Union[csv.reader, csv.DictReader, None], float, Optional[str]]:
+    """
+    Read the given s3 key into a numpy array.from retry.api import retry_call
+    reader = csv.DictReader(StringIO(text))
+    """
+    error_message = None
+    csvreader = None
+    key = unquote(key)
+    if key.lower().endswith((".csv", ".gz")):
+        url = S3.generate_presigned_url(ClientMethod="get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=3600, HttpMethod="GET")
+
+        start = time.time()
+        try:
+            logger.info(f"downloading ({url})...")
+            response = requests_retry_session().get(url)
+        except HTTPError as e:
+            logger.exception(e)
+            error_message = f"Exception while processing csv(s3://{bucket}/{key}): ({e.code}) {e.reason}"
+            logger.error(error_message)
+
+        except ValueError as e:
+            logger.exception(e)
+            error_message = f"Exception while processing csv(s3://{bucket}/{key}): {e.args}"
+            logger.error(error_message)
+
+        if 200 <= response.status_code <= 299:
+            if key.lower().endswith(".gz"):
+                data = GzipFile(fileobj=BytesIO(response.content)).read().decode(encoding)
+                csvreader = reader(StringIO(data), dialect=dialect)
+            elif key.lower().endswith(".csv"):
+                data = response.text
+                csvreader = reader(StringIO(data), dialect=dialect)
+
+        else:
+            error_message = f"({response.status_code}) error downloading data"
+    else:
+        error_message = f"unsupported CSV file extension: s3://{bucket}/{key}"
+
+    end = time.time()
+    download_time = end - start
+
+    return (bucket, key), csvreader, download_time, error_message
 
 
 def parse_s3_uri(uri: str) -> Tuple[str, str]:
