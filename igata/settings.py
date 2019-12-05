@@ -1,11 +1,13 @@
 """
 Project/package-wide settings
 """
+import datetime
 import logging
 import os
 
 logger = logging.getLogger(__name__)
 
+JST = datetime.timezone(datetime.timedelta(hours=+9), "JST")
 
 MAX_POST_IMAGES = 50
 AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "ap-northeast-1")
@@ -48,3 +50,18 @@ logger.info(f"(ENVAR) MAX_PROCESSING_REQUESTS: {MAX_PROCESSING_REQUESTS}")
 DEFAULT_MAX_PER_REQUEST_PROCESSING_SECONDS = 60
 MAX_PER_REQUEST_PROCESSING_SECONDS = int(os.getenv("MAX_PER_REQUEST_PROCESSING_SECONDS", str(DEFAULT_MAX_PER_REQUEST_PROCESSING_SECONDS)))
 logger.info(f"MAX_PER_REQUEST_PROCESSING_SECONDS: {MAX_PER_REQUEST_PROCESSING_SECONDS}")
+
+# dynamodb settings
+DYNAMODB_RESULTS_ADDITIONAL_PARENT_FIELDS = os.getenv(
+    "RESULTS_ADDITIONAL_PARENT_FIELDS", "request_id,s3_uri"
+)  # comma separated field to include from parent
+DYNAMODB_RESULTS_SORTKEY_KEYNAME = os.getenv("RESULTS_SORTKEY_KEYNAME", "s3_uri")
+
+DYNAMODB_DEFAULT_RESULTS_KEYNAME = "result"
+DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME = os.getenv("REQUESTS_TABLE_RESULTS_KEYNAME", DYNAMODB_DEFAULT_RESULTS_KEYNAME)
+DYNAMODB_REQUESTS_TABLE_HASHKEY_KEYNAME = os.getenv("REQUESTS_TABLE_HASHKEY_KEYNAME", "request_id")
+
+# fields dependent on api implementation
+DYNAMODB_RESULTS_TABLE_STATE_FIELDNAME = "state"
+DYNAMODB_RESULTS_ERROR_STATE = "error"
+DYNAMODB_RESULTS_PROCESSED_STATE = "processed"
