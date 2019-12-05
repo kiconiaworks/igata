@@ -5,13 +5,13 @@ import os
 import time
 import traceback
 from collections import Counter, defaultdict
-from typing import Tuple, Union
+from typing import Any, Optional, Tuple, Union
 
 import boto3
 from botocore.exceptions import ClientError
 
 from .. import settings
-from ..handlers.aws.input import InputImageCtxManagerBase
+from ..handlers.aws.input import InputCtxManagerBase
 from ..handlers.aws.output import OutputCtxManagerBase
 from ..predictors import PredictorBase
 from ..utils import serialize_json_and_chunk_by_bytes
@@ -39,7 +39,7 @@ class PredictionExecutor:
     def __init__(
         self,
         predictor: PredictorBase,
-        input_ctx_manager: InputImageCtxManagerBase,
+        input_ctx_manager: InputCtxManagerBase,
         input_settings: dict,
         output_ctx_manager: OutputCtxManagerBase,
         output_settings: dict,
@@ -95,8 +95,8 @@ class PredictionExecutor:
         """
         Run Predictor.predict() on the given input calling 'preprocess_input' and 'postprocess_output' methods if defined in Predictor class.
 
-        inputs may be None if 'SQSRecordS3InputImageCtxManager' is used.
-        (SQSRecordS3InputImageCtxManager will pull messages from the sqs queue)
+        inputs may be None if 'SQSMessageS3InputImageCtxManager' is used.
+        (SQSMessageS3InputImageCtxManager will pull messages from the sqs queue)
 
         .. note::
 
@@ -109,72 +109,85 @@ class PredictionExecutor:
         meta = {"input_settings": self._input_settings, "output_settings": self._output_settings, "request_info": None}
         with self.input_ctx_manager(**self._input_settings) as input_ctxmgr, self.output_ctx_manager(**self._output_settings) as output_ctxmgr:
             for record, info in input_ctxmgr.get_records(inputs):  # process records as they become available
-                if PREDICTOR_RESULTS_KEYNAME in info:
-                    info.pop(PREDICTOR_RESULTS_KEYNAME)  # to assure that None does not overwrite actual result
-                if hasattr(record, "any") and not record.any():  # or not record:  # support both numpy empty array and None
-                    # handle error case
-                    info["result"] = None
+                self.predictor.pre_predict_hook(record, info)
+                if "is_valid" in info and not info["is_valid"]:
+                    error_message = "is_valid=False, record not processed, SKIPPING"
+                    if "errors" not in info:
+                        info["errors"] = [error_message]
+                    else:
+                        info["errors"].append(error_message)
                     record_results = info
-                    logger.error(f"Unable to process image request error info will be returned: results={record_results}")
                     summary_results["errors"] += 1
                 else:
-                    record_in_error = False
-                    if "download_time" in info:
-                        summary_results["total_download_duration"] += info["download_time"]
-                    meta["request_info"] = info
-                    if hasattr(self.predictor, "preprocess_input"):
-                        preprocess_start = time.time()
-                        record = self.predictor.preprocess_input(record, meta)
-                        preprocess_end = time.time()
-                        preprocess_duration = round(preprocess_end - preprocess_start, 4)
-                        logger.info(f"preprocess_duration: {preprocess_duration}")
-                        summary_results["total_preprocess_duration"] += preprocess_duration
-
-                    predict_start = time.time()
-                    try:
-                        logger.debug(f"calling self.predictor.predict(record, meta): meta={meta}")
-                        record_results = self.predictor.predict(record, meta)
-                        assert isinstance(record_results, dict)
-                        # add request data to result record
-                        if "request_info" in meta and meta["request_info"]:
-                            # remove input_ctxmgr specific keys
-                            request_info = {k: v for k, v in meta["request_info"].items() if k not in input_ctxmgr.context_manager_specific_info_keys}
-                            record_results.update(request_info)
-                            logger.debug(f"Added request info to resulting record_results: {record_results}")
-
-                    except Exception as e:
-                        # collect traceback
-                        traceback_lines = traceback.format_exception(etype=type(e), value=e, tb=e.__traceback__)
-                        tb = "".join(traceback_lines)
-                        error_message = (
-                            f"Exception in ({PREDICTOR_MODULE}) {PREDICTOR_CLASS_NAME}.predict() " f"({e.args})\n:Request: {info}\nTraceback:\n{tb}"
-                        )
-                        logger.error(error_message)
-                        if "errors" not in info:
-                            info["errors"] = [error_message]
-                        else:
-                            if not info["errors"]:
-                                info["errors"] = []
-                            info["errors"].append(error_message)
+                    if PREDICTOR_RESULTS_KEYNAME in info:
+                        info.pop(PREDICTOR_RESULTS_KEYNAME)  # to assure that None does not overwrite actual result
+                    if hasattr(record, "any") and not record.any():  # or not record:  # support both numpy empty array and None
+                        # handle error case
+                        info["result"] = None
                         record_results = info
-                        record_in_error = True
+                        logger.error(f"Unable to process image request error info will be returned: results={record_results}")
                         summary_results["errors"] += 1
+                    else:
+                        record_in_error = False
+                        if "download_time" in info:
+                            summary_results["total_download_duration"] += info["download_time"]
+                        meta["request_info"] = info
+                        if hasattr(self.predictor, "preprocess_input"):
+                            preprocess_start = time.time()
+                            record = self.predictor.preprocess_input(record, meta)
+                            preprocess_end = time.time()
+                            preprocess_duration = round(preprocess_end - preprocess_start, 4)
+                            logger.info(f"preprocess_duration: {preprocess_duration}")
+                            summary_results["total_preprocess_duration"] += preprocess_duration
 
-                    logger.debug(f"predictor.predict() results: {record_results}")
-                    predict_end = time.time()
-                    predict_duration = round(predict_end - predict_start, 4)
-                    logger.info(f"predict_duration: {predict_duration}")
-                    summary_results["total_predict_duration"] += predict_duration
-                    summary_results["total_predictions"] += 1
+                        predict_start = time.time()
+                        try:
+                            logger.debug(f"calling self.predictor.predict(record, meta): meta={meta}")
+                            record_results = self.predictor.predict(record, meta)
+                            assert isinstance(record_results, dict)
+                            # add request data to result record
+                            if "request_info" in meta and meta["request_info"]:
+                                # remove input_ctxmgr specific keys
+                                request_info = {
+                                    k: v for k, v in meta["request_info"].items() if k not in input_ctxmgr.context_manager_specific_info_keys
+                                }
+                                record_results.update(request_info)
+                                logger.debug(f"Added request info to resulting record_results: {record_results}")
 
-                    if hasattr(self.predictor, "postprocess_output") and not record_in_error:
-                        postprocess_start = time.time()
-                        record_results = self.predictor.postprocess_output(record_results, meta)
-                        logger.debug(f"predictor.postprocess_output() results: {record_results}")
-                        postprocess_end = time.time()
-                        postprocess_duration = round(postprocess_end - postprocess_start, 4)
-                        logger.info(f"postprocess_duration: {postprocess_duration}")
-                        summary_results["total_postprocess_duration"] += postprocess_duration
+                        except Exception as e:
+                            # collect traceback
+                            traceback_lines = traceback.format_exception(etype=type(e), value=e, tb=e.__traceback__)
+                            tb = "".join(traceback_lines)
+                            error_message = (
+                                f"Exception in ({PREDICTOR_MODULE}) {PREDICTOR_CLASS_NAME}.predict() "
+                                f"({e.args})\n:Request: {info}\nTraceback:\n{tb}"
+                            )
+                            logger.error(error_message)
+                            if "errors" not in info:
+                                info["errors"] = [error_message]
+                            else:
+                                if not info["errors"]:
+                                    info["errors"] = []
+                                info["errors"].append(error_message)
+                            record_results = info
+                            record_in_error = True
+                            summary_results["errors"] += 1
+
+                        logger.debug(f"predictor.predict() results: {record_results}")
+                        predict_end = time.time()
+                        predict_duration = round(predict_end - predict_start, 4)
+                        logger.info(f"predict_duration: {predict_duration}")
+                        summary_results["total_predict_duration"] += predict_duration
+                        summary_results["total_predictions"] += 1
+
+                        if hasattr(self.predictor, "postprocess_output") and not record_in_error:
+                            postprocess_start = time.time()
+                            record_results = self.predictor.postprocess_output(record_results, meta)
+                            logger.debug(f"predictor.postprocess_output() results: {record_results}")
+                            postprocess_end = time.time()
+                            postprocess_duration = round(postprocess_end - postprocess_start, 4)
+                            logger.info(f"postprocess_duration: {postprocess_duration}")
+                            summary_results["total_postprocess_duration"] += postprocess_duration
 
                 put_start = time.time()
                 response = output_ctxmgr.put_record(record_results)
@@ -188,6 +201,7 @@ class PredictionExecutor:
                 sns_topic_arn, request_id = self._prepare_sns_notification_data(info)
                 if sns_topic_arn and request_id:
                     sns_notifications[sns_topic_arn].append(request_id)
+                self.predictor.post_predict_hook(record, response, meta)
                 gc.collect()  # force garbage collection post predict
             context_manager_exit_start = time.time()
 

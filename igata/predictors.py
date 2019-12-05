@@ -1,11 +1,15 @@
 from abc import abstractmethod
-from typing import Union
+from typing import Any, Optional, Union
 
 
 class PredictorBase:
     """Class to subclass to define a predictor to be wrapped and run by the igata.runners.executors.PredictionExecutor"""
 
     __version__ = "0.1.0"
+
+    def pre_predict_hook(self, record: Any, info: Optional[dict] = None) -> None:
+        """Hook for providing igata.handlers.aws.mixins for additional pre processing. (Intended for signaling, db updates, etc.)"""
+        pass
 
     def preprocess_input(self, input_record, meta: Union[dict, None] = None):
         """
@@ -34,3 +38,7 @@ class PredictorBase:
         With transformed results passed to the defined OutputCtxManager
         """
         return prediction_result
+
+    def post_predict_hook(self, record: Any, response: Any, meta: Optional[dict] = None) -> None:
+        """Hook for providing igata.handlers.aws.mixins for additional post processing. (Intended for signaling, db updates, etc.)"""
+        pass

@@ -4,10 +4,12 @@ import sys
 from pathlib import Path
 
 import boto3
+import pytest
 from igata import settings
 from igata.handlers import INPUT_CONTEXT_MANAGERS
+from igata.handlers.aws.exceptions import S3BucketKeyError
 from igata.handlers.aws.input.s3 import S3BucketCSVInputCtxManager, S3BucketImageInputCtxManager
-from igata.handlers.aws.input.sqs import SQSRecordS3InputCSVCtxManager, SQSRecordS3InputImageCtxManager
+from igata.handlers.aws.input.sqs import SQSMessagePassthroughCtxManager, SQSMessageS3InputCSVCtxManager, SQSMessageS3InputImageCtxManager
 
 from .utils import (
     _create_sqs_queue,
@@ -72,7 +74,7 @@ def test_input_handler_s3bucketimageinputctxmanager():
 
 
 @setup_teardown_s3_file(local_filepath=TEST_IMAGE_FILEPATH, bucket=TEST_BUCKETNAME, key=TEST_IMAGE_FILENAME)
-def test_input_handler_sqsrecords3inputimagectxmanager():
+def test_input_handler_sqsmessages3inputimagectxmanager():
     image_found = False
 
     request = {
@@ -81,6 +83,11 @@ def test_input_handler_sqsrecords3inputimagectxmanager():
         "image_id": None,  # populated below
         "request_id": "request:{request_id}",
     }
+
+    try:
+        _delete_sqs_queue(TEST_INPUT_SQS_QUEUENAME)
+    except Exception as e:
+        logger.exception(e)
 
     queue_url = _create_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
     for i in range(10):
@@ -99,7 +106,7 @@ def test_input_handler_sqsrecords3inputimagectxmanager():
     expected_keys = ("s3_uri", "collection_id", "image_id", "request_id")
 
     expected_count = 2  # defined by 'max_processing_requests'
-    with SQSRecordS3InputImageCtxManager(**input_settings) as s3images:
+    with SQSMessageS3InputImageCtxManager(**input_settings) as s3images:
         actual_count = 0
         for image, info in s3images.get_records():
             assert image.any()
@@ -141,7 +148,7 @@ def test_input_handler_sqsrecordss3inputimagectxmanager_single_record():
     expected_keys = ("s3_uri", "collection_id", "image_id", "request_id")
 
     expected_count = 1  # defined by 'max_processing_requests'
-    with SQSRecordS3InputImageCtxManager(**input_settings) as s3images:
+    with SQSMessageS3InputImageCtxManager(**input_settings) as s3images:
         actual_count = 0
         for image, info in s3images.get_records():
             assert image.any()
@@ -157,14 +164,14 @@ def test_registered_input_context_managers():
     supported_input_context_managers = (
         "S3BucketImageInputCtxManager",
         "S3BucketCSVInputCtxManager",
-        "SQSRecordS3InputImageCtxManager",
-        "SQSRecordS3InputCSVCtxManager",
+        "SQSMessageS3InputImageCtxManager",
+        "SQSMessageS3InputCSVCtxManager",
     )
     assert all(configured in supported_input_context_managers for configured in INPUT_CONTEXT_MANAGERS)
 
 
 @setup_teardown_s3_file(local_filepath=TEST_IMAGE_FILEPATH, bucket=TEST_BUCKETNAME, key=TEST_IMAGE_FILENAME)
-def test_input_handler_sqsrecords3inputimagectxmanager_no_delete_sqs_messages_on_exception():
+def test_input_handler_sqsmessages3inputimagectxmanager_no_delete_sqs_messages_on_exception():
     image_found = False
 
     request = {
@@ -199,7 +206,7 @@ def test_input_handler_sqsrecords3inputimagectxmanager_no_delete_sqs_messages_on
 
     expected_count = desired_processing_requests  # defined by 'max_processing_requests'
     try:
-        with SQSRecordS3InputImageCtxManager(**input_settings) as s3images:
+        with SQSMessageS3InputImageCtxManager(**input_settings) as s3images:
             actual_count = 0
             for image, info in s3images.get_records():
                 assert image.any()
@@ -243,7 +250,7 @@ def test_input_handler_s3bucketcsvinputctxmanager():
 
 
 @setup_teardown_s3_file(local_filepath=SAMPLE_CSV_FILEPATH, bucket=TEST_BUCKETNAME, key=SAMPLE_CSV_FILEPATH.name)
-def test_input_handler_sqsrecords3inputcsvctxmanager():
+def test_input_handler_sqsmessages3inputcsvctxmanager():
     test_s3uri = f"s3://{TEST_BUCKETNAME}/{SAMPLE_CSV_FILEPATH.name}"
     request = {"s3_uri": test_s3uri, "collection_id": "events:1234:photographers:5678", "request_id": "request:{request_id}"}
 
@@ -264,7 +271,7 @@ def test_input_handler_sqsrecords3inputcsvctxmanager():
     expected_keys = ("s3_uri", "collection_id", "request_id", "current_s3uri_key")
 
     expected_count = 2  # defined by 'max_processing_requests'
-    with SQSRecordS3InputCSVCtxManager(**input_settings) as s3csvfiles:
+    with SQSMessageS3InputCSVCtxManager(**input_settings) as s3csvfiles:
         actual_count = 0
         for csvreader, info in s3csvfiles.get_records():
             assert csvreader is not None
@@ -275,7 +282,7 @@ def test_input_handler_sqsrecords3inputcsvctxmanager():
 
 
 @setup_teardown_s3_file(local_filepath=SAMPLE_CSV_FILEPATH, bucket=TEST_BUCKETNAME, key=SAMPLE_CSV_FILEPATH.name)
-def test_input_handler_sqsrecords3inputcsvctxmanager_multiple_s3uris():
+def test_input_handler_sqsmessages3inputcsvctxmanager_multiple_s3uris():
     _upload_to_s3(SAMPLE_CSVGZ_FILEPATH, TEST_BUCKETNAME, SAMPLE_CSVGZ_FILEPATH.name)
     test_s3uri_1 = f"s3://{TEST_BUCKETNAME}/{SAMPLE_CSV_FILEPATH.name}"
     test_s3uri_2 = f"s3://{TEST_BUCKETNAME}/{SAMPLE_CSVGZ_FILEPATH.name}"
@@ -307,7 +314,7 @@ def test_input_handler_sqsrecords3inputcsvctxmanager_multiple_s3uris():
     expected_keys = ("s3_uri_key1", "s3_uri_key2", "collection_id", "request_id", "current_s3uri_key")
 
     expected_count = 4  # defined by 'max_processing_requests'
-    with SQSRecordS3InputCSVCtxManager(**input_settings) as s3csvfiles:
+    with SQSMessageS3InputCSVCtxManager(**input_settings) as s3csvfiles:
         actual_count = 0
         for csvreader, info in s3csvfiles.get_records():
             assert csvreader is not None
@@ -321,3 +328,131 @@ def test_input_handler_sqsrecords3inputcsvctxmanager_multiple_s3uris():
                 assert actual_line == expected_line
             actual_count += 1
     assert actual_count == expected_count
+
+
+@setup_teardown_s3_file(local_filepath=SAMPLE_CSV_FILEPATH, bucket=TEST_BUCKETNAME, key=SAMPLE_CSV_FILEPATH.name)
+def test_input_handler_sqsmessages3inputpassthroughctxmanager():
+    test_s3uri_1 = f"s3://{TEST_BUCKETNAME}/{SAMPLE_CSV_FILEPATH.name}"
+    request = {"s3_uri_key1": test_s3uri_1, "collection_id": "events:1234:photographers:5678", "request_id": "request:{request_id}"}
+
+    _delete_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
+    queue_url = _create_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
+    for i in range(10):
+        records = []
+        # add 2 requests and send
+        for message_request_count in range(2):
+            request["request_id"] = request["request_id"].format(request_id=i)
+            records.append(request)
+        assert len(records) == 2
+
+        # add dummy records to input queue
+        sqs_queue_send_message(queue_name=TEST_INPUT_SQS_QUEUENAME, message_body=records)
+
+    input_settings = {"sqs_queue_url": queue_url, "max_processing_requests": 2, "s3uri_keys": ["s3_uri_key1"]}
+
+    expected_count = 2  # defined by 'max_processing_requests'
+    with SQSMessagePassthroughCtxManager(**input_settings) as sqspassthrough:
+        actual_count = 0
+        for sqsmessage, info in sqspassthrough.get_records():
+            assert sqsmessage is not None
+            assert "s3uri_keys" in info
+            assert "sqs_queue_url" in info
+            assert "max_processing_requests" in info
+            assert "is_valid" in info
+            assert info["is_valid"] is True
+            assert sqsmessage == request, f"sqsmessage={sqsmessage}, request={request}"
+
+            actual_count += 1
+    assert actual_count == expected_count
+
+
+@setup_teardown_s3_file(local_filepath=SAMPLE_CSV_FILEPATH, bucket=TEST_BUCKETNAME, key=SAMPLE_CSV_FILEPATH.name)
+def test_input_handler_sqsmessages3inputpassthroughctxmanager_multiple_s3uris():
+    _upload_to_s3(SAMPLE_CSVGZ_FILEPATH, TEST_BUCKETNAME, SAMPLE_CSVGZ_FILEPATH.name)
+    test_s3uri_1 = f"s3://{TEST_BUCKETNAME}/{SAMPLE_CSV_FILEPATH.name}"
+    test_s3uri_2 = f"s3://{TEST_BUCKETNAME}/{SAMPLE_CSVGZ_FILEPATH.name}"
+    request = {
+        "s3_uri_key1": test_s3uri_1,
+        "s3_uri_key2": test_s3uri_2,
+        "collection_id": "events:1234:photographers:5678",
+        "request_id": "request:{request_id}",
+    }
+
+    _delete_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
+    queue_url = _create_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
+    for i in range(10):
+        records = []
+        # add 2 requests and send
+        for message_request_count in range(2):
+            request["request_id"] = request["request_id"].format(request_id=i)
+            records.append(request)
+        assert len(records) == 2
+
+        # add dummy records to input queue
+        sqs_queue_send_message(queue_name=TEST_INPUT_SQS_QUEUENAME, message_body=records)
+
+    input_settings = {"sqs_queue_url": queue_url, "max_processing_requests": 2, "s3uri_keys": ["s3_uri_key1", "s3_uri_key2"]}
+
+    expected_count = 2  # defined by 'max_processing_requests'
+    with SQSMessagePassthroughCtxManager(**input_settings) as sqspassthrough:
+        actual_count = 0
+        for sqsmessage, info in sqspassthrough.get_records():
+            assert sqsmessage is not None
+            assert "s3uri_keys" in info
+            assert "sqs_queue_url" in info
+            assert "max_processing_requests" in info
+            assert "is_valid" in info
+            assert info["is_valid"] is True
+            assert sqsmessage == request, f"sqsmessage={sqsmessage}, request={request}"
+
+            actual_count += 1
+    assert actual_count == expected_count
+
+
+@setup_teardown_s3_file(local_filepath=SAMPLE_CSV_FILEPATH, bucket=TEST_BUCKETNAME, key=SAMPLE_CSV_FILEPATH.name)
+def test_input_handler_sqsmessages3inputpassthroughctxmanager_multiple_s3uris_missing_s3key():
+    test_s3uri_1 = f"s3://{TEST_BUCKETNAME}/{SAMPLE_CSV_FILEPATH.name}"
+    test_s3uri_2 = f"s3://{TEST_BUCKETNAME}/{SAMPLE_CSVGZ_FILEPATH.name}"
+    request = {
+        "s3_uri_key1": test_s3uri_1,
+        "s3_uri_key2": test_s3uri_2,
+        "collection_id": "events:1234:photographers:5678",
+        "request_id": "request:{request_id}",
+    }
+
+    _delete_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
+    queue_url = _create_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
+    for i in range(10):
+        records = []
+        # add 2 requests and send
+        for message_request_count in range(2):
+            request["request_id"] = request["request_id"].format(request_id=i)
+            records.append(request)
+        assert len(records) == 2
+
+        # add dummy records to input queue
+        sqs_queue_send_message(queue_name=TEST_INPUT_SQS_QUEUENAME, message_body=records)
+
+    input_settings = {"sqs_queue_url": queue_url, "max_processing_requests": 2, "s3uri_keys": ["s3_uri_key1", "s3_uri_key2"]}
+
+    with SQSMessagePassthroughCtxManager(**input_settings) as sqspassthrough:
+        records_iter = sqspassthrough.get_records()
+        sqsmessage, info = next(records_iter)
+        assert sqsmessage is not None
+        assert "s3uri_keys" in info
+        assert "sqs_queue_url" in info
+        assert "max_processing_requests" in info
+        assert sqsmessage == request, f"sqsmessage={sqsmessage}, request={request}"
+        assert info["is_valid"] is False
+
+        _upload_to_s3(SAMPLE_CSVGZ_FILEPATH, TEST_BUCKETNAME, SAMPLE_CSVGZ_FILEPATH.name)
+        processed_count = 0
+        for sqsmessage, info in records_iter:
+            assert sqsmessage is not None
+            assert "s3uri_keys" in info
+            assert "sqs_queue_url" in info
+            assert "max_processing_requests" in info
+            assert sqsmessage == request, f"sqsmessage={sqsmessage}, request={request}"
+            assert info["is_valid"] is True
+            processed_count += 1
+        assert processed_count == 1

@@ -9,7 +9,7 @@ import numpy as np
 
 from .... import settings
 from ....utils import parse_s3_uri, prepare_csv, prepare_images
-from . import InputImageCtxManagerBase
+from . import InputCtxManagerBase
 
 logger = logging.getLogger("cliexecutor")
 
@@ -17,7 +17,7 @@ S3BUCKET_OUTPUT_FILENAME_PREFIX = os.getenv("S3BUCKET_OUTPUT_FILENAME_PREFIX", "
 JST = datetime.timezone(datetime.timedelta(hours=+9), "JST")
 
 
-class S3BucketImageInputCtxManager(InputImageCtxManagerBase):
+class S3BucketImageInputCtxManager(InputCtxManagerBase):
     """Context manager for handling S3 Uris for Image files as `get_records` input"""
 
     @classmethod
@@ -70,7 +70,7 @@ class S3BucketImageInputCtxManager(InputImageCtxManagerBase):
         pass
 
 
-class S3BucketCSVInputCtxManager(InputImageCtxManagerBase):
+class S3BucketCSVInputCtxManager(InputCtxManagerBase):
     """Context manager for handling S3 Uris for CSV files as `get_records` input"""
 
     def __init__(self, reader: Union[csv.reader, csv.DictReader] = csv.DictReader, *args, **kwargs):

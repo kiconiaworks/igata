@@ -54,15 +54,15 @@ Available Input Context Manager(s):
 - 'S3BucketImageInputCtxManager': [DEFAULT] Pulls IMAGE inputs from s3 bucket/key given a list of s3Uris (Ex: s3://bucket/my/key.png)
     - Required Option(s) Environment Variables: *None*
 
-- 'SQSRecordS3InputImageCtxManager': 
+- 'SQSMessageS3InputImageCtxManager': 
     - Required Option(s) Environment Variables: 
         - `INPUT_CTXMANAGER_SQS_QUEUE_URL`: Queue Url form which to retrieve messages from
 
-- 'SQSRecordS3InputCSVCtxManager': 
+- 'SQSMessageS3InputCSVCtxManager': 
     - Required Option(s) Environment Variables: 
         - `INPUT_CTXMANAGER_SQS_QUEUE_URL`: Queue Url form which to retrieve messages from
         
-#### SQSRecordS3InputImageCtxManager SQS message Format
+#### SQSMessageS3InputImageCtxManager SQS message Format
 
 ```yaml
   schema:
@@ -92,7 +92,7 @@ Available Input Context Manager(s):
         - s3_uri
 ```
 
-#### SQSRecordS3InputCSVCtxManager SQS message Format
+#### SQSMessageS3InputCSVCtxManager SQS message Format
 
 ```yaml
   schema:

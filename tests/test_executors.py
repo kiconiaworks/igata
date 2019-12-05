@@ -7,7 +7,7 @@ from time import sleep
 from dummypredictor.predictors import DummyPredictorNoInputNoOutput, DummyPredictorNoInputNoOutputVariableOutput
 from igata.cli import execute_prediction
 from igata.handlers.aws.input.s3 import S3BucketImageInputCtxManager
-from igata.handlers.aws.input.sqs import SQSRecordS3InputImageCtxManager
+from igata.handlers.aws.input.sqs import SQSMessageS3InputImageCtxManager
 from igata.handlers.aws.output.dynamodb import DynamodbOutputCtxManager
 from igata.handlers.aws.output.sqs import SQSRecordOutputCtxManager
 from igata.runners.executors import PredictionExecutor
@@ -167,7 +167,7 @@ def test_executor_requests_with_sns():
         output_settings = {"results_tablename": results_tablename, "requests_tablename": requests_tablename}
         execute_summary = execute_prediction(
             predictor=predictor,
-            input_ctx_manager=SQSRecordS3InputImageCtxManager,
+            input_ctx_manager=SQSMessageS3InputImageCtxManager,
             input_settings=input_settings,
             output_ctx_manager=DynamodbOutputCtxManager,
             output_settings=output_settings,
@@ -205,7 +205,7 @@ def test_executor_requests_with_invalid_sns():
         output_settings = {"results_tablename": results_tablename, "requests_tablename": requests_tablename}
         execute_summary = execute_prediction(
             predictor=predictor,
-            input_ctx_manager=SQSRecordS3InputImageCtxManager,
+            input_ctx_manager=SQSMessageS3InputImageCtxManager,
             input_settings=input_settings,
             output_ctx_manager=DynamodbOutputCtxManager,
             output_settings=output_settings,
@@ -257,7 +257,7 @@ def test_executor_requests_with_meta():
         }
         execute_summary = execute_prediction(
             predictor=predictor,
-            input_ctx_manager=SQSRecordS3InputImageCtxManager,
+            input_ctx_manager=SQSMessageS3InputImageCtxManager,
             input_settings=input_settings,
             output_ctx_manager=DynamodbOutputCtxManager,
             output_settings=output_settings,

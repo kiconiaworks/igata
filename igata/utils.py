@@ -19,6 +19,7 @@ import boto3
 import imageio
 import numpy as np
 import requests
+from botocore.errorfactory import ClientError
 from igata import settings
 from requests.adapters import HTTPAdapter
 from retry.api import retry_call
@@ -235,3 +236,19 @@ def requests_retry_session(retries=3, backoff_factor=0.3, status_forcelist=(500,
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     return session
+
+
+def s3_key_exists(bucket: str, key: str) -> bool:
+    """Check if given bucket, key exists"""
+    exists = False
+    try:
+        S3.head_object(Bucket=bucket, Key=key)
+        exists = True
+    except ClientError as e:
+        if e.response["ResponseMetadata"]["HTTPStatusCode"] == 404:
+            logger.error(f"s3 key does not exist: s3://{bucket}/{key}")
+        else:
+            logger.exception(e)
+            logger.error(f"Unknown ClientError: {e.args}")
+
+    return exists

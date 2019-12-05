@@ -86,7 +86,7 @@ def update_item(item: dict, tablename: str) -> dict:
     return response
 
 
-def check_and_convert(value, precision=settings.DYNAMODB_DYNAMODB_DECIMAL_PRECISION_DIGITS):
+def check_and_convert(value, precision=settings.DYNAMODB_DECIMAL_PRECISION_DIGITS):
     """convert float to decimal for dynamodb"""
     return value if not isinstance(value, float) else round(Decimal(value), precision)
 

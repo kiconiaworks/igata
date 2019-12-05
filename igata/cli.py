@@ -26,7 +26,7 @@ from .handlers import (
     OUTPUT_CONTEXT_MANAGERS,
     OUTPUT_CTXMGR_ENVAR_PREFIX,
 )
-from .handlers.aws.input import InputImageCtxManagerBase
+from .handlers.aws.input import InputCtxManagerBase
 from .handlers.aws.output import OutputCtxManagerBase
 from .predictors import PredictorBase
 from .runners.executors import PredictionExecutor
@@ -92,7 +92,7 @@ def find_predictor_class(module_name: str, predictor_class_name: str) -> Type[Pr
     return predictor_class
 
 
-def collect_ctxmgr_settings(input_ctx_manager: Type[InputImageCtxManagerBase], output_ctx_manager: Type[OutputCtxManagerBase]) -> dict:
+def collect_ctxmgr_settings(input_ctx_manager: Type[InputCtxManagerBase], output_ctx_manager: Type[OutputCtxManagerBase]) -> dict:
     """Collect context manager settings from environment variables"""
     assert input_ctx_manager
     assert output_ctx_manager
@@ -133,7 +133,7 @@ def collect_ctxmgr_settings(input_ctx_manager: Type[InputImageCtxManagerBase], o
     return settings
 
 
-def input_contenxt_manager(value) -> Type[InputImageCtxManagerBase]:
+def input_contenxt_manager(value) -> Type[InputCtxManagerBase]:
     """argparse type for converting string into the ContextManger class"""
     ctxmgr = INPUT_CONTEXT_MANAGERS.get(value, None)
     if not ctxmgr:
