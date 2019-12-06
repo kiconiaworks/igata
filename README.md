@@ -1,7 +1,11 @@
 # igata README
 
 This project provides a inference infrastructure for easily preparing and deploying a trained model and wrapping the model in a way that easily allows 
-input/output to various services (for example: SQS, S3, DyanamoDB)
+input/output to various services (for example: SQS, S3, DyanamoDB).
+
+The goal is to separate where/how data is stored with how it's processed.
+
+
 
 ## Usage
 

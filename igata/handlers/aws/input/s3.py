@@ -8,7 +8,7 @@ from typing import Generator, List, Tuple, Union
 import numpy as np
 
 from .... import settings
-from ....utils import parse_s3_uri, prepare_csv, prepare_images
+from ....utils import parse_s3_uri, prepare_csv_reader, prepare_images
 from . import InputCtxManagerBase
 
 logger = logging.getLogger("cliexecutor")
@@ -102,7 +102,7 @@ class S3BucketCSVInputCtxManager(InputCtxManagerBase):
                 args.append((bucket, key, self.reader))
 
             pool = ThreadPool(settings.DOWNLOAD_WORKERS)
-            for (bucket, key), csvreader, download_time, error_message in pool.starmap(prepare_csv, args):
+            for (bucket, key), csvreader, download_time, error_message in pool.starmap(prepare_csv_reader, args):
                 info = {}
                 if error_message:
                     # add error message to request in order to return info to user

@@ -5,7 +5,7 @@ import os
 import time
 import traceback
 from collections import Counter, defaultdict
-from typing import Any, Optional, Tuple, Union
+from typing import Tuple, Type, Union
 
 import boto3
 from botocore.exceptions import ClientError
@@ -39,9 +39,9 @@ class PredictionExecutor:
     def __init__(
         self,
         predictor: PredictorBase,
-        input_ctx_manager: InputCtxManagerBase,
+        input_ctx_manager: Type[InputCtxManagerBase],
         input_settings: dict,
-        output_ctx_manager: OutputCtxManagerBase,
+        output_ctx_manager: Type[OutputCtxManagerBase],
         output_settings: dict,
     ):
         self.predictor = predictor

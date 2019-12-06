@@ -309,3 +309,67 @@ def test_executor_context_manager_exit_duration():
 
     assert "context_manager_exit_duration" in execute_summary
     assert execute_summary["context_manager_exit_duration"] >= 1.0
+
+
+@setup_teardown_s3_file(local_filepath=TEST_IMAGE_FILEPATH, bucket=TEST_BUCKETNAME, key=TEST_IMAGE_FILENAME)
+@setup_teardown_sqs_queue(queue_name=TEST_SQS_INPUT_QUEUENAME)
+def test_executor_inputctxmgr_is_valid_handling():
+    """Test that meta data from the initial request is referenced for the 'is_valid' key and does not call predict() when meta/info is_valid is False"""
+    request = {
+        "request_id": "r-11111",
+        "s3_uri": f"s3://{TEST_BUCKETNAME}/{TEST_IMAGE_FILENAME}",
+        "sns_topic_arn": TEST_SNS_TOPIC_ARN + "invalid",
+        "collection_id": "collection:1234",
+        "additional-request-key": "somekey",
+        "result": None,
+    }
+    request_keys = list(request.keys())
+    requests = [request]
+
+    predictor = DummyPredictorNoInputNoOutputVariableOutput(
+        result={"request_id": "r-11111", "result": [{"prediction": 0.11}], "sns_topic_arn": TEST_SNS_TOPIC_ARN, "s3_uri": "s3://bucket/key.png"}
+    )
+
+    queue_url = _get_queue_url(TEST_SQS_INPUT_QUEUENAME)
+    sqs_queue_send_message(queue_name=TEST_SQS_INPUT_QUEUENAME, message_body=json.dumps(requests))
+
+    requests_tablename = "test-executor_requests_table"
+    results_tablename = "test-executor_results_table"
+    requests_fields = {"request_id": ("S", "HASH")}
+
+    results_fields = {"hashkey": ("S", "HASH"), "s3_uri": ("S", "RANGE")}
+    try:
+        request_table = _dynamodb_create_table(requests_tablename, requests_fields)
+        results_table = _dynamodb_create_table(results_tablename, results_fields)
+        input_settings = {"sqs_queue_url": queue_url}
+        output_settings = {
+            "results_tablename": results_tablename,
+            "requests_tablename": requests_tablename,
+            "results_additional_parent_keys": request_keys,  # must be added to include additional values in output
+        }
+        execute_summary = execute_prediction(
+            predictor=predictor,
+            input_ctx_manager=SQSMessageS3InputImageCtxManager,
+            input_settings=input_settings,
+            output_ctx_manager=DynamodbOutputCtxManager,
+            output_settings=output_settings,
+        )
+        assert execute_summary
+        assert execute_summary["errors"] == 0
+        # check results in results_table
+        requests_response = request_table.scan()
+        assert len(requests_response["Items"]) == 1
+        results_response = results_table.scan()
+        assert len(results_response["Items"]) == 1
+        result_item = results_response["Items"][0]
+
+        # confirm that request request keys are included in the result output
+        for expected_request_key in request_keys:
+            assert expected_request_key in result_item, result_item
+
+    except Exception as e:
+        raise e
+
+    finally:
+        _dynamodb_delete_table(requests_tablename)
+        _dynamodb_delete_table(results_tablename)

@@ -10,6 +10,7 @@ from decimal import Decimal
 from gzip import GzipFile
 from hashlib import md5
 from io import BytesIO, StringIO
+from pathlib import Path
 from typing import Generator, List, Optional, Tuple, Union
 from urllib.error import HTTPError
 from urllib.parse import unquote, urlparse
@@ -18,6 +19,7 @@ from uuid import NAMESPACE_URL, uuid5
 import boto3
 import imageio
 import numpy as np
+import pandas
 import requests
 from botocore.errorfactory import ClientError
 from igata import settings
@@ -112,8 +114,21 @@ def prepare_images(bucket, key) -> Tuple[Tuple[str, str], np.array, float, Optio
     return (bucket, key), image, download_time, error_message
 
 
-def prepare_csv(
-    bucket: str, key: str, reader: Union[csv.reader, csv.DictReader] = csv.DictReader, dialect: str = settings.CSV_DIALECT, encoding: str = "utf8"
+def _download_s3_file(bucket: str, key: str) -> dict:
+    """Download file from S3"""
+    url = S3.generate_presigned_url(ClientMethod="get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=3600, HttpMethod="GET")
+    logger.info(f"downloading ({url})...")
+    response = requests_retry_session().get(url)
+    return response
+
+
+def prepare_csv_reader(
+    bucket: str,
+    key: str,
+    encoding: str = settings.INPUT_CSV_ENCODING,
+    delimiter: str = settings.INPUT_CSV_DELIMITER,
+    reader: Union[csv.reader, csv.DictReader] = csv.DictReader,
+    dialect: str = settings.INPUT_CSV_READER_DIALECT,
 ) -> Tuple[Tuple[str, str], Union[csv.reader, csv.DictReader, None], float, Optional[str]]:
     """
     Read the given s3 key into a numpy array.from retry.api import retry_call
@@ -123,12 +138,9 @@ def prepare_csv(
     csvreader = None
     key = unquote(key)
     if key.lower().endswith((".csv", ".gz")):
-        url = S3.generate_presigned_url(ClientMethod="get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=3600, HttpMethod="GET")
-
         start = time.time()
         try:
-            logger.info(f"downloading ({url})...")
-            response = requests_retry_session().get(url)
+            response = _download_s3_file(bucket, key)
         except HTTPError as e:
             logger.exception(e)
             error_message = f"Exception while processing csv(s3://{bucket}/{key}): ({e.code}) {e.reason}"
@@ -142,10 +154,10 @@ def prepare_csv(
         if 200 <= response.status_code <= 299:
             if key.lower().endswith(".gz"):
                 data = GzipFile(fileobj=BytesIO(response.content)).read().decode(encoding)
-                csvreader = reader(StringIO(data), dialect=dialect)
+                csvreader = reader(StringIO(data), dialect=dialect, delimiter=delimiter)
             elif key.lower().endswith(".csv"):
                 data = response.text
-                csvreader = reader(StringIO(data), dialect=dialect)
+                csvreader = reader(StringIO(data), dialect=dialect, delimiter=delimiter)
 
         else:
             error_message = f"({response.status_code}) error downloading data"
@@ -156,6 +168,52 @@ def prepare_csv(
     download_time = end - start
 
     return (bucket, key), csvreader, download_time, error_message
+
+
+def prepare_csv_dataframe(
+    bucket: str,
+    key: str,
+    encoding: str = settings.INPUT_CSV_ENCODING,
+    delimiter: str = settings.INPUT_CSV_DELIMITER,
+    header_lines: Optional[int] = settings.INPUT_CSV_HEADER_LINES,
+) -> Tuple[Tuple[str, str], Optional[pandas.DataFrame], float, Optional[str]]:
+    """Read CSV from s3 and return a dataframe"""
+    df = None
+    error_message = None
+    response = None
+    start = time.time()
+    try:
+        response = _download_s3_file(bucket, key)
+    except HTTPError as e:
+        logger.exception(e)
+        error_message = f"Exception while processing csv(s3://{bucket}/{key}): ({e.code}) {e.reason}"
+        logger.error(error_message)
+
+    if response:
+        if 200 <= response.status_code <= 299:
+            filename = Path(key.split("/")[-1])
+            ext = filename.suffix.lower()
+            compression_ext_mapping = {".zip": "zip", ".gz": "gzip", ".xz": "xz", ".bz2": "bz2"}
+            compression = compression_ext_mapping.get(ext, None)
+            data = BytesIO(response.content)
+            data.name = filename.name
+
+            try:
+                df = pandas.read_csv(data, header=header_lines, delimiter=delimiter, encoding=encoding, compression=compression)
+            except Exception as e:
+                logger.exception(e)
+                error_message = f"Exception Occurred while calling pandas.read_csv(): {e.args}"
+        else:
+            error_message = f"Invalid response.status_code while processing csv(s3://{bucket}/{key}): status_code={response.status_code}"
+            logger.error(error_message)
+    else:
+        error_message = f"response not defined, download failed for: s3://{bucket}/{key}"
+        logger.error("response not defined!")
+
+    end = time.time()
+    download_time = end - start
+
+    return (bucket, key), df, download_time, error_message
 
 
 def parse_s3_uri(uri: str) -> Tuple[str, str]:

@@ -4,12 +4,16 @@ import sys
 from pathlib import Path
 
 import boto3
-import pytest
+import pandas
 from igata import settings
 from igata.handlers import INPUT_CONTEXT_MANAGERS
-from igata.handlers.aws.exceptions import S3BucketKeyError
 from igata.handlers.aws.input.s3 import S3BucketCSVInputCtxManager, S3BucketImageInputCtxManager
-from igata.handlers.aws.input.sqs import SQSMessagePassthroughCtxManager, SQSMessageS3InputCSVCtxManager, SQSMessageS3InputImageCtxManager
+from igata.handlers.aws.input.sqs import (
+    SQSMessagePassthroughCtxManager,
+    SQSMessageS3InputCSVPandasDataFrameCtxManager,
+    SQSMessageS3InputCSVReaderCtxManager,
+    SQSMessageS3InputImageCtxManager,
+)
 
 from .utils import (
     _create_sqs_queue,
@@ -166,6 +170,8 @@ def test_registered_input_context_managers():
         "S3BucketCSVInputCtxManager",
         "SQSMessageS3InputImageCtxManager",
         "SQSMessageS3InputCSVCtxManager",
+        "SQSMessagePassthroughCtxManager",
+        "SQSMessageS3InputCSVPandasDataFrameCtxManager",
     )
     assert all(configured in supported_input_context_managers for configured in INPUT_CONTEXT_MANAGERS)
 
@@ -271,7 +277,7 @@ def test_input_handler_sqsmessages3inputcsvctxmanager():
     expected_keys = ("s3_uri", "collection_id", "request_id", "current_s3uri_key")
 
     expected_count = 2  # defined by 'max_processing_requests'
-    with SQSMessageS3InputCSVCtxManager(**input_settings) as s3csvfiles:
+    with SQSMessageS3InputCSVReaderCtxManager(**input_settings) as s3csvfiles:
         actual_count = 0
         for csvreader, info in s3csvfiles.get_records():
             assert csvreader is not None
@@ -314,7 +320,7 @@ def test_input_handler_sqsmessages3inputcsvctxmanager_multiple_s3uris():
     expected_keys = ("s3_uri_key1", "s3_uri_key2", "collection_id", "request_id", "current_s3uri_key")
 
     expected_count = 4  # defined by 'max_processing_requests'
-    with SQSMessageS3InputCSVCtxManager(**input_settings) as s3csvfiles:
+    with SQSMessageS3InputCSVReaderCtxManager(**input_settings) as s3csvfiles:
         actual_count = 0
         for csvreader, info in s3csvfiles.get_records():
             assert csvreader is not None
@@ -456,3 +462,84 @@ def test_input_handler_sqsmessages3inputpassthroughctxmanager_multiple_s3uris_mi
             assert info["is_valid"] is True
             processed_count += 1
         assert processed_count == 1
+
+
+@setup_teardown_s3_file(local_filepath=SAMPLE_CSV_FILEPATH, bucket=TEST_BUCKETNAME, key=SAMPLE_CSV_FILEPATH.name)
+def test_input_handler_sqsmessages3inputcsvpandasdataframectxmanager():
+    test_s3uri_1 = f"s3://{TEST_BUCKETNAME}/{SAMPLE_CSV_FILEPATH.name}"
+    request = {"s3_uri_key1": test_s3uri_1, "collection_id": "events:1234:photographers:5678", "request_id": "request:{request_id}"}
+
+    _delete_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
+    queue_url = _create_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
+    for i in range(10):
+        records = []
+        # add 2 requests and send
+        for message_request_count in range(2):
+            request["request_id"] = request["request_id"].format(request_id=i)
+            records.append(request)
+        assert len(records) == 2
+
+        # add dummy records to input queue
+        sqs_queue_send_message(queue_name=TEST_INPUT_SQS_QUEUENAME, message_body=records)
+
+    input_settings = {"sqs_queue_url": queue_url, "max_processing_requests": 2, "s3uri_keys": ["s3_uri_key1"]}
+
+    expected_count = 2  # defined by 'max_processing_requests'
+    with SQSMessageS3InputCSVPandasDataFrameCtxManager(**input_settings) as dataframeinput:
+        actual_count = 0
+        for dfrecords, info in dataframeinput.get_records():
+            assert isinstance(dfrecords, dict)
+            assert "s3uri_keys" in info
+            assert "sqs_queue_url" in info
+            assert "max_processing_requests" in info
+            assert "is_valid" in info
+            assert info["is_valid"] is True
+            for df in dfrecords.values():
+                assert isinstance(df, pandas.DataFrame)
+
+            actual_count += 1
+    assert actual_count == expected_count
+
+
+@setup_teardown_s3_file(local_filepath=SAMPLE_CSV_FILEPATH, bucket=TEST_BUCKETNAME, key=SAMPLE_CSV_FILEPATH.name)
+def test_input_handler_sqsmessages3inputcsvpandasdataframectxmanager_multiple_s3urikeys():
+    _upload_to_s3(SAMPLE_CSVGZ_FILEPATH, TEST_BUCKETNAME, SAMPLE_CSVGZ_FILEPATH.name)
+    test_s3uri_1 = f"s3://{TEST_BUCKETNAME}/{SAMPLE_CSV_FILEPATH.name}"
+    test_s3uri_2 = f"s3://{TEST_BUCKETNAME}/{SAMPLE_CSVGZ_FILEPATH.name}"
+    request = {
+        "s3_uri_key1": test_s3uri_1,
+        "s3_uri_key2": test_s3uri_2,
+        "collection_id": "events:1234:photographers:5678",
+        "request_id": "request:{request_id}",
+    }
+
+    _delete_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
+    queue_url = _create_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
+    for i in range(10):
+        records = []
+        # add 2 requests and send
+        for message_request_count in range(2):
+            request["request_id"] = request["request_id"].format(request_id=i)
+            records.append(request)
+        assert len(records) == 2
+
+        # add dummy records to input queue
+        sqs_queue_send_message(queue_name=TEST_INPUT_SQS_QUEUENAME, message_body=records)
+
+    input_settings = {"sqs_queue_url": queue_url, "max_processing_requests": 2, "s3uri_keys": ["s3_uri_key1", "s3_uri_key2"]}
+
+    expected_count = 2  # defined by 'max_processing_requests'
+    with SQSMessageS3InputCSVPandasDataFrameCtxManager(**input_settings) as dataframeinput:
+        actual_count = 0
+        for dfrecords, info in dataframeinput.get_records():
+            assert isinstance(dfrecords, dict)
+            assert "s3uri_keys" in info
+            assert "sqs_queue_url" in info
+            assert "max_processing_requests" in info
+            assert "is_valid" in info
+            assert info["is_valid"] is True
+            for df in dfrecords.values():
+                assert isinstance(df, pandas.DataFrame)
+
+            actual_count += 1
+    assert actual_count == expected_count
