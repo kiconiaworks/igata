@@ -1,14 +1,12 @@
 import datetime
 import logging
 import os
-from hashlib import md5
-from io import BytesIO
+from io import BytesIO, StringIO, TextIOWrapper
 from typing import List, Union
 
 import boto3
 
 from .... import settings
-from ....utils import flatten
 from . import OutputCtxManagerBase
 
 logger = logging.getLogger("cliexecutor")
@@ -19,26 +17,30 @@ DEFAULT_OUTPUT_HEADERS = True
 JST = datetime.timezone(datetime.timedelta(hours=+9), "JST")
 
 
-class S3BucketCsvFileOutputCtxManager(OutputCtxManagerBase):
+class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
     """Context manger for outputting results to an s3 bucket"""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.unique_hash = md5()
+
         self.output_s3_bucket = kwargs["output_s3_bucket"]
-        self.filename_prefix = kwargs.get("filename_prefix", DEFAULT_OUTPUT_FILENAME_PREFIX)
-        fieldnames_value = kwargs["csv_fieldnames"]
-        if isinstance(fieldnames_value, str):
-            # parse comma separated list
-            assert "," in fieldnames_value
-            self.csv_fieldnames = [v.strip() for v in fieldnames_value.split(",")]
-        elif isinstance(fieldnames_value, (list, tuple)):
-            self.csv_fieldnames = fieldnames_value
-        else:
-            raise ValueError(f'Invalid value given for "csv_fieldnames": {fieldnames_value}')
-        self.output_headers = kwargs.get("output_headers", DEFAULT_OUTPUT_HEADERS)
-        self.line_ending = kwargs.get("line_ending", "\n")
-        self.open_file = None
+
+        self.output_s3_prefix = kwargs.get("output_s3_prefix", None)
+        if self.output_s3_prefix and self.output_s3_prefix.startswith("/"):
+            self.output_s3_prefix = self.output_s3_prefix[1:]
+        if self.output_s3_prefix and self.output_s3_prefix.endswith("/"):
+            self.output_s3_prefix = self.output_s3_prefix[:-1]
+
+        self.to_csv_kwargs = kwargs.get("to_csv_kwargs", None)
+        if not self.to_csv_kwargs:
+            # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.to_csv.html
+            self.to_csv_kwargs = dict(
+                encoding=settings.DEFAULT_OUTPUT_CSV_ENCODING,
+                sep=settings.DEFAULT_OUTPUT_CSV_DELIMITER,
+                header=False,
+                index=False,
+                compression="gzip",
+            )
 
     @classmethod
     def required_kwargs(cls):
@@ -51,32 +53,65 @@ class S3BucketCsvFileOutputCtxManager(OutputCtxManagerBase):
             OUTPUT_CTXMGR_CSV_FIELDNAMES
 
         """
-        required_keys = ("output_s3_bucket", "csv_fieldnames")
+        required_keys = ("output_s3_bucket",)
         return required_keys
 
     def put_records(self, records: List[Union[list, tuple, dict]], encoding: str = "utf8"):
+        pass
+
+    def put_record(self, record: List[dict], *args, **kwargs) -> int:
         """
-        Accept a list of values to output to file.
-        Given list/tuple converted to CSV string and encoded as UTF8
+        Result Record:
+            [
+                {
+                    "job_id": {JOB_ID|REQUEST_ID},
+                    "filename": {OUTPUT_FILENAME},
+                    "gzip": True,
+                    "dataframe": {result dataframe},
+                    "to_csv_kwargs": {}
+                }
+            ]
         """
-        summary = {}
-        lines = 0
-        csv_line = None
-        is_first_line = True  # for generating unique key
-        for lines, record in enumerate(records, 1):
-            if isinstance(record, dict):
-                flattened_record = flatten(record)
-                record = [v for k, v in sorted(flattened_record)]
-            csv_line = ",".join(str(v) for v in record).encode(encoding)
-            if csv_line:
-                self.open_file.write(csv_line)
-                self.open_file.write(self.line_ending.encode(encoding))
-                if is_first_line:
-                    self.unique_hash.update(csv_line)
-        if csv_line:
-            self.unique_hash.update(csv_line)
-        summary["lines"] = lines
-        return summary
+        outputs_info = []
+        for result in record:
+            job_id = result["job_id"]
+            filename = result.get("filename", None)
+            if not filename:
+                filename = f"{job_id}.csv"
+
+            gzip_result = result.get("gzip", False)
+            if filename.endswith("gzip"):
+                logger.warning(f'filename({filename}).endswith(".gz"), will gzip results!')
+                gzip_result = True
+            compression_type = "gzip" if gzip_result else None
+
+            if gzip_result:
+                if not filename.endswith(".gz"):
+                    filename += ".gz"
+
+            key = f"{self.output_s3_prefix}/{filename}"
+            logger.info(f"preparing ({filename})...")
+
+            df_csv_buffer = StringIO()  # BytesIO()
+            df = result["dataframe"]
+            kwargs = self.to_csv_kwargs
+            if "to_csv_kwargs" in result:
+                for k, v in result["to_csv_kwargs"].items():
+                    kwargs[k] = v
+            logger.debug(f"csv output kwargs: {kwargs}")
+            df.to_csv(df_csv_buffer, **kwargs)
+            logger.info(f"preparing: SUCCESS!")
+
+            logger.info(f"writing results to: s3://{self.output_s3_bucket}/{key}")
+            df_csv_buffer.seek(0)  # reset file for reading
+            encoded_buffer = BytesIO(df_csv_buffer.read().encode("utf8"))
+            encoded_buffer.seek(0)
+            S3.upload_fileobj(Fileobj=encoded_buffer, Bucket=self.output_s3_bucket, Key=key)
+            logger.info("writing results: SUCCESS!")
+            output_info = {"Bucket": self.output_s3_bucket, "Key": key}
+
+            outputs_info.append(output_info)
+        return outputs_info
 
     @property
     def key(self):
@@ -87,20 +122,7 @@ class S3BucketCsvFileOutputCtxManager(OutputCtxManagerBase):
         return key
 
     def __enter__(self):
-        self.open_file = BytesIO()
-        if self.output_headers:
-            logger.debug(f"Outputting headers: {self.csv_fieldnames}")
-            self.put_records(self.csv_fieldnames)
         return self
 
     def __exit__(self, *args, **kwargs):
-        # make sure that any remaining records are put
-        # --> records added byt the `` defined in OutputCtxManagerBase where self._record_results is populated
-        if self._record_results:
-            logger.debug(f"put_records(): {len(self._record_results)}")
-            self.put_records(self._record_results)
-
-        logger.info(f"Writing results to: s3://{self.output_s3_bucket}/{self.key}")
-        self.open_file.seek(0)  # set pointer to 0 so data can be read
-        S3.upload_fileobj(Fileobj=self.open_file, Bucket=self.output_s3_bucket, Key=self.key)
-        self.open_file.close()
+        pass

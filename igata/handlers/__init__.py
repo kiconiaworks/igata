@@ -8,7 +8,7 @@ from .aws.input.sqs import (
     SQSMessageS3InputImageCtxManager,
 )
 from .aws.output.dynamodb import DynamodbOutputCtxManager
-from .aws.output.s3 import S3BucketCsvFileOutputCtxManager
+from .aws.output.s3 import S3BucketPandasDataFrameCsvFileOutputCtxManager
 from .aws.output.sqs import SQSRecordOutputCtxManager
 
 INPUT_CONTEXT_MANAGERS = {
@@ -22,7 +22,7 @@ INPUT_CONTEXT_MANAGERS = {
 DEFAULT_INPUT_CONTEXT_MANAGER_NAME = "S3BucketImageInputCtxManager"
 
 OUTPUT_CONTEXT_MANAGERS = {
-    "S3BucketCsvFileOutputCtxManager": S3BucketCsvFileOutputCtxManager,
+    "S3BucketPandasDataFrameCsvFileOutputCtxManager": S3BucketPandasDataFrameCsvFileOutputCtxManager,
     "SQSRecordOutputCtxManager": SQSRecordOutputCtxManager,
     "DynamodbOutputCtxManager": DynamodbOutputCtxManager,
 }

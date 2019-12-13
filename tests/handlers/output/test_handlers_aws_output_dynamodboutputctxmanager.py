@@ -7,22 +7,11 @@ from pathlib import Path
 
 import boto3
 from igata import settings
-from igata.handlers import OUTPUT_CONTEXT_MANAGER_REQUIRED_ENVARS, OUTPUT_CONTEXT_MANAGERS
 from igata.handlers.aws.output.dynamodb import DynamodbOutputCtxManager, prepare_record
-from igata.handlers.aws.output.s3 import S3BucketCsvFileOutputCtxManager
-from igata.handlers.aws.output.sqs import SQSRecordOutputCtxManager
-
-from .utils import (
-    _dynamodb_create_table,
-    _dynamodb_delete_table,
-    _get_dynamodb_table_resource,
-    _get_queue_url,
-    setup_teardown_s3_bucket,
-    setup_teardown_sqs_queue,
-)
+from tests.utils import _dynamodb_create_table, _dynamodb_delete_table, _get_dynamodb_table_resource
 
 # add test root to PATH in order to load dummypredictor
-BASE_TEST_DIRECTORY = Path(__file__).absolute().parent
+BASE_TEST_DIRECTORY = Path(__file__).absolute().parent.parent.parent
 sys.path.append(str(BASE_TEST_DIRECTORY))
 
 
@@ -52,59 +41,6 @@ TEST_IMAGE_S3URI = f"s3://{TEST_BUCKETNAME}/{TEST_IMAGE_FILENAME}"
 
 class DummyException(Exception):
     pass
-
-
-@setup_teardown_s3_bucket(bucket=TEST_OUTPUT_BUCKETNAME)
-def test_output_handler_s3bucketcsvfileoutputctxmanager():
-    record_one = [1, "value"]
-    record_two = [2, "another"]
-    nested_dict_record = {"values": {"a": 1, "b": 2}, "other": "hi"}
-    records = (record_one, record_two, nested_dict_record)
-
-    output_settings = {"output_s3_bucket": TEST_OUTPUT_BUCKETNAME, "csv_fieldnames": ("other",), "output_headers": False}
-    with S3BucketCsvFileOutputCtxManager(**output_settings) as csvs3bucket:
-        csvs3bucket.put_records(records)
-        output_key = csvs3bucket.key
-
-    # check that file is in bucket
-    response = S3.get_object(Bucket=TEST_OUTPUT_BUCKETNAME, Key=output_key)
-    assert response["ResponseMetadata"]["HTTPStatusCode"] == 200
-    lines = response["Body"].read().decode("utf8").strip().split("\n")
-    assert len(lines) == 3, lines
-
-
-def test_output_handler_s3bucketcsvfileoutputctxmanager_required_envars():
-    expected_required = ("output_s3_bucket", "csv_fieldnames")
-    assert all(f in S3BucketCsvFileOutputCtxManager.required_kwargs() for f in expected_required)
-    mgr = S3BucketCsvFileOutputCtxManager(output_s3_bucket="test_bucket1", csv_fieldnames=["a", "b", "c"])
-
-    expected_envars = [f"OUTPUT_CTXMGR_{e.upper()}" for e in S3BucketCsvFileOutputCtxManager.required_kwargs()]
-    for expected_envar in expected_envars:
-        assert expected_envar in OUTPUT_CONTEXT_MANAGER_REQUIRED_ENVARS[str(mgr)]
-
-
-@setup_teardown_sqs_queue(queue_name=TEST_SQS_OUTPUT_QUEUENAME)
-def test_output_handler_sqsrecordoutputctxmanager():
-
-    dict_sample = {"other": 1}
-    list_sample = [{"other": "value"}, {"more": "values"}]
-    queue_url = _get_queue_url(TEST_SQS_OUTPUT_QUEUENAME)
-    output_settings = {"sqs_queue_url": queue_url}
-    with SQSRecordOutputCtxManager(**output_settings) as sqs_output:
-        summary = sqs_output.put_records(dict_sample)
-        assert summary["sent_messages"] == 1
-        summary = sqs_output.put_records(list_sample)
-        assert summary["sent_messages"] == 2
-
-
-def test_output_handler_sqsrecordoutputctxmanager_required_envars():
-    expected_required = ("sqs_queue_url",)
-    assert all(f in SQSRecordOutputCtxManager.required_kwargs() for f in expected_required)
-    mgr = SQSRecordOutputCtxManager(sqs_queue_url="http://x.com/queue/test_bucket1")
-
-    expected_envars = [f"OUTPUT_CTXMGR_{e.upper()}" for e in SQSRecordOutputCtxManager.required_kwargs()]
-    for expected_envar in expected_envars:
-        assert expected_envar in OUTPUT_CONTEXT_MANAGER_REQUIRED_ENVARS[str(mgr)]
 
 
 def test_output_handler_dynamodboutputctxmanager():
@@ -284,11 +220,6 @@ def test_output_handler_dynamodboutputctxmanager_prepare_record():
     # check that non-nested keys are NOT included in original_nested
     assert "first" not in original_nested
     assert "second" not in original_nested
-
-
-def test_registered_output_context_managers():
-    supported_output_context_managers = ("S3BucketCsvFileOutputCtxManager", "SQSRecordOutputCtxManager", "DynamodbOutputCtxManager")
-    assert all(configured in supported_output_context_managers for configured in OUTPUT_CONTEXT_MANAGERS)
 
 
 def test_output_handler_dynamodboutputctxmanager_duplicate_record_overwrite():

@@ -25,7 +25,7 @@ from .utils import (
 # add test root to PATH in order to load dummypredictor
 BASE_TEST_DIRECTORY = Path(__file__).absolute().parent
 sys.path.append(str(BASE_TEST_DIRECTORY))
-
+sys.path.append(str(BASE_TEST_DIRECTORY.parent))
 
 # reduce logging output from noisy packages
 logging.getLogger("requests").setLevel(logging.WARNING)
