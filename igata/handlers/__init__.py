@@ -8,6 +8,7 @@ from .aws.input.sqs import (
     SQSMessageS3InputImageCtxManager,
 )
 from .aws.output.dynamodb import DynamodbOutputCtxManager
+from .aws.output.mixins.dyanamodb import DynamodbRequestUpdateMixIn
 from .aws.output.s3 import S3BucketPandasDataFrameCsvFileOutputCtxManager
 from .aws.output.sqs import SQSRecordOutputCtxManager
 
@@ -44,3 +45,5 @@ for name, ctxmgr_class in OUTPUT_CONTEXT_MANAGERS.items():
     for required_arguement_name in ctxmgr_class.required_kwargs():
         required_envar_name = f"{output_ctxmgr_envar_prefix}{required_arguement_name.upper()}"
         OUTPUT_CONTEXT_MANAGER_REQUIRED_ENVARS[name].append(required_envar_name)
+
+OUTPUT_CONTEXT_MANAGER_MIXINS = {"DynamodbRequestUpdateMixIn": DynamodbRequestUpdateMixIn}

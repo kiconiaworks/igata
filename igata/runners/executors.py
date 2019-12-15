@@ -5,15 +5,17 @@ import os
 import signal
 import time
 from collections import Counter, defaultdict
-from typing import Tuple, Type, Union
+from typing import List, Optional, Tuple, Type, Union
 
 import boto3
 from botocore.exceptions import ClientError
 
 from .. import settings
 from ..exceptions import PredictTimeoutError
+from ..handlers import OUTPUT_CONTEXT_MANAGER_MIXINS
 from ..handlers.aws.input import InputCtxManagerBase
 from ..handlers.aws.output import OutputCtxManagerBase
+from ..handlers.aws.output.mixins import PostPredictHookMixInBase
 from ..predictors import PredictorBase
 from ..utils import serialize_json_and_chunk_by_bytes
 
@@ -34,6 +36,15 @@ SNS_MAX_MESSAGE_SIZE_BYTES = 262144
 SNS = boto3.client("sns", region_name=settings.AWS_REGION, endpoint_url=settings.SNS_ENDPOINT)
 
 
+def get_output_ctxmgr_mixins() -> List[Optional[Type[PostPredictHookMixInBase]]]:
+    mixins = []
+    if settings.OUTPUT_CTXMGR_MIXINS:
+        for mixin_class_name in settings.OUTPUT_CTXMGR_MIXINS:
+            mixin = OUTPUT_CONTEXT_MANAGER_MIXINS[mixin_class_name]
+            mixins.append(mixin)
+    return mixins
+
+
 class PredictionExecutor:
     """Main executor for running user-defined Predictors (Predictor classes that sub-class igata.predictors.PredictorBase)"""
 
@@ -50,6 +61,14 @@ class PredictionExecutor:
         self._input_settings = input_settings
         self.output_ctx_manager = output_ctx_manager
         self._output_settings = output_settings
+
+        output_ctxmgr_mixins = get_output_ctxmgr_mixins()
+        if output_ctxmgr_mixins:
+            logger.info(f"Adding OUTPUT_CTXMGR_MIXINS({settings.OUTPUT_CTXMGR_MIXINS})...")
+            updated_bases = list(self.output_ctx_manager.__bases__)
+            for output_ctxmgr_mixin in output_ctxmgr_mixins:
+                updated_bases.append(output_ctxmgr_mixin)
+            self.output_ctx_manager.__bases__ = tuple(updated_bases)
 
         # Log predictor version
         predictor_version = "not defined"

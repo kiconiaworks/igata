@@ -81,3 +81,13 @@ DEFAULT_OUTPUT_CSV_DELIMITER = os.getenv("DEFAULT_OUTPUT_CSV_DELIMITER", ",")
 # - csv reader settings
 DEFAULT_INPUT_CSV_READER_DIALECT = "excel"
 INPUT_CSV_READER_DIALECT = os.getenv("INPUT_CSV_READER_DIALECT", DEFAULT_INPUT_CSV_READER_DIALECT)
+
+# Tuple of available handlers.aws.output.mixins
+VALID_OUTPUT_CTXMGR_MIXINS = ("DynamodbRequestUpdateMixIn",)
+DEFAULT_OUTPUT_CTXMGR_MIXINS = None
+OUTPUT_CTXMGR_MIXINS = os.getenv("OUTPUT_CTXMGR_MIXINS", DEFAULT_OUTPUT_CTXMGR_MIXINS)
+if OUTPUT_CTXMGR_MIXINS:
+    OUTPUT_CTXMGR_MIXINS = OUTPUT_CTXMGR_MIXINS.split(",")
+    for output_mixin in OUTPUT_CTXMGR_MIXINS:
+        if output_mixin not in VALID_OUTPUT_CTXMGR_MIXINS:
+            raise ValueError(f"Invalid value for OUTPUT_CTXMGR_MIXINS, must be comma separated list of: {VALID_OUTPUT_CTXMGR_MIXINS}")
