@@ -1,0 +1,2 @@
+class PredictTimeoutError(Exception):
+    pass

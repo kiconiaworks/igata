@@ -2,8 +2,8 @@ import gc
 import json
 import logging
 import os
+import signal
 import time
-import traceback
 from collections import Counter, defaultdict
 from typing import Tuple, Type, Union
 
@@ -11,6 +11,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from .. import settings
+from ..exceptions import PredictTimeoutError
 from ..handlers.aws.input import InputCtxManagerBase
 from ..handlers.aws.output import OutputCtxManagerBase
 from ..predictors import PredictorBase
@@ -153,16 +154,22 @@ class PredictionExecutor:
                                 }
                                 record_results.update(request_info)
                                 logger.debug(f"Added request info to resulting record_results: {record_results}")
+                        except PredictTimeoutError as e:
+                            error_message = f"set Predict Timeout value exceeded: {self.predictor.PROCESSING_TIMEOUT_SECONDS}s"
+                            logger.error(error_message)
+                            if "errors" not in info:
+                                info["errors"] = [error_message]
+                            else:
+                                if not info["errors"]:
+                                    info["errors"] = []
+                                info["errors"].append(error_message)
+                            record_results = info
+                            record_in_error = True
+                            summary_results["errors"] += 1
 
                         except Exception as e:
                             # collect traceback
-                            traceback_lines = traceback.format_exception(etype=type(e), value=e, tb=e.__traceback__)
-                            tb = "".join(traceback_lines)
-                            error_message = (
-                                f"Exception in ({PREDICTOR_MODULE}) {PREDICTOR_CLASS_NAME}.predict() "
-                                f"({e.args})\n:Request: {info}\nTraceback:\n{tb}"
-                            )
-                            logger.error(error_message)
+                            logger.exception(e)
                             if "errors" not in info:
                                 info["errors"] = [error_message]
                             else:
@@ -188,6 +195,9 @@ class PredictionExecutor:
                             postprocess_duration = round(postprocess_end - postprocess_start, 4)
                             logger.info(f"postprocess_duration: {postprocess_duration}")
                             summary_results["total_postprocess_duration"] += postprocess_duration
+                if self.predictor.PROCESSING_TIMEOUT_SECONDS:
+                    # cancel predict timeout
+                    signal.alarm(0)
 
                 put_start = time.time()
                 response = output_ctxmgr.put_record(record_results)

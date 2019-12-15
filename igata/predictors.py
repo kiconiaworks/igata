@@ -1,11 +1,34 @@
+import logging
+import signal
 from abc import abstractmethod
 from typing import Any, Optional, Union
+
+from .exceptions import PredictTimeoutError
+
+logger = logging.getLogger(__name__)
+
+
+def sigalrm_handler(signum: int, frame: Any) -> None:
+    logger.debug(f"(SIGALAM-{signum}) predictor timeout called")
+    raise PredictTimeoutError("predict() timedout!")
 
 
 class PredictorBase:
     """Class to subclass to define a predictor to be wrapped and run by the igata.runners.executors.PredictionExecutor"""
 
     __version__ = "0.1.0"
+
+    PROCESSING_TIMEOUT_SECONDS = None
+
+    def set_predict_timeout(self, timeout_seconds: int) -> None:
+        """
+        Issues signal.alarm({timeout_seconds}) when called.
+        igata SIGALRM signal handler raises igata.exceptions.PredictTimeoutError.
+        """
+        logger.info(f"processing_timeout set (PrecitorTimeout exception raised on timeout): {timeout_seconds}s")
+        self.PROCESSING_TIMEOUT_SECONDS = timeout_seconds
+        signal.signal(signal.SIGALRM, sigalrm_handler)
+        signal.alarm(timeout_seconds)
 
     def pre_predict_hook(self, record: Any, info: Optional[dict] = None) -> None:
         """Hook for providing igata.handlers.aws.mixins for additional pre processing. (Intended for signaling, db updates, etc.)"""

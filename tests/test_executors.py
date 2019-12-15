@@ -4,7 +4,11 @@ import sys
 from pathlib import Path
 from time import sleep
 
-from dummypredictor.predictors import DummyPredictorNoInputNoOutput, DummyPredictorNoInputNoOutputVariableOutput
+from dummypredictor.predictors import (
+    DummyPredictorNoInputNoOutput,
+    DummyPredictorNoInputNoOutputVariableOutput,
+    DummyPredictorNoInputNoOutputWithPredictTimeout5s,
+)
 from igata.cli import execute_prediction
 from igata.handlers.aws.input.s3 import S3BucketImageInputCtxManager
 from igata.handlers.aws.input.sqs import SQSMessageS3InputImageCtxManager
@@ -373,3 +377,33 @@ def test_executor_inputctxmgr_is_valid_handling():
     finally:
         _dynamodb_delete_table(requests_tablename)
         _dynamodb_delete_table(results_tablename)
+
+
+@setup_teardown_s3_file(local_filepath=TEST_IMAGE_FILEPATH, bucket=TEST_BUCKETNAME, key=TEST_IMAGE_FILENAME)
+@setup_teardown_sqs_queue(queue_name=TEST_SQS_OUTPUT_QUEUENAME)
+def test_executor_predictor_with__set_predict_timeout():
+    class SleepExitOutputCtxManager(SQSRecordOutputCtxManager):
+        def __exit__(self, *args, **kwargs):
+            super().__exit__(*args, **kwargs)
+            sleep(1)
+
+    predictor = DummyPredictorNoInputNoOutputWithPredictTimeout5s()
+
+    queue_url = _get_queue_url(TEST_SQS_OUTPUT_QUEUENAME)
+    output_settings = {"sqs_queue_url": queue_url}
+    executor = PredictionExecutor(
+        predictor=predictor,
+        input_ctx_manager=S3BucketImageInputCtxManager,
+        input_settings={},
+        output_ctx_manager=SleepExitOutputCtxManager,
+        output_settings=output_settings,
+    )
+
+    s3uri_inputs = [TEST_IMAGE_S3URI]
+    execute_summary = executor.execute(s3uri_inputs)
+    assert execute_summary
+
+    assert "context_manager_exit_duration" in execute_summary
+    assert execute_summary["context_manager_exit_duration"] >= 1.0
+    assert "errors" in execute_summary
+    assert execute_summary["errors"] == 1
