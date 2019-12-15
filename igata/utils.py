@@ -171,11 +171,7 @@ def prepare_csv_reader(
 
 
 def prepare_csv_dataframe(
-    bucket: str,
-    key: str,
-    encoding: str = settings.INPUT_CSV_ENCODING,
-    delimiter: str = settings.INPUT_CSV_DELIMITER,
-    header_lines: Optional[int] = settings.INPUT_CSV_HEADER_LINES,
+    bucket: str, key: str, read_csv_kwargs: Optional[dict] = None
 ) -> Tuple[Tuple[str, str], Optional[pandas.DataFrame], float, Optional[str]]:
     """Read CSV from s3 and return a dataframe"""
     df = None
@@ -192,14 +188,27 @@ def prepare_csv_dataframe(
     if response:
         if 200 <= response.status_code <= 299:
             filename = Path(key.split("/")[-1])
-            ext = filename.suffix.lower()
-            compression_ext_mapping = {".zip": "zip", ".gz": "gzip", ".xz": "xz", ".bz2": "bz2"}
-            compression = compression_ext_mapping.get(ext, None)
             data = BytesIO(response.content)
             data.name = filename.name
 
+            if not read_csv_kwargs:
+                # set defaults
+                read_csv_kwargs = {
+                    "sep": settings.DEFAULT_INPUT_CSV_DELIMITER,
+                    "encoding": settings.DEFAULT_INPUT_CSV_ENCODING,
+                    "header": settings.DEFAULT_INPUT_CSV_HEADER_LINES,
+                }
+
+            # - determine compression
+            ext = filename.suffix.lower()
+            compression_ext_mapping = {".zip": "zip", ".gz": "gzip", ".xz": "xz", ".bz2": "bz2"}
+            compression = compression_ext_mapping.get(ext, None)
+            if compression and "compression" not in read_csv_kwargs:
+                read_csv_kwargs["compression"] = compression
+
+            logger.debug(f"read_csv_kwargs={read_csv_kwargs}")
             try:
-                df = pandas.read_csv(data, header=header_lines, delimiter=delimiter, encoding=encoding, compression=compression)
+                df = pandas.read_csv(data, **read_csv_kwargs)
             except Exception as e:
                 logger.exception(e)
                 error_message = f"Exception Occurred while calling pandas.read_csv(): {e.args}"

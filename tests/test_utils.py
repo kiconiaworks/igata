@@ -3,6 +3,7 @@ from uuid import UUID
 
 import pandas
 import pytest
+from igata import settings
 from igata.utils import flatten, generate_request_id, prepare_csv_dataframe, prepare_csv_reader
 
 from .utils import setup_teardown_s3_file
@@ -75,18 +76,27 @@ def test_prepare_csv_reader_invalidext():
 def test_prepare_csv_dataframe_csv():
     _, df, download_time, error_message = prepare_csv_dataframe(bucket="igata-testbucket-localstack", key=SAMPLE_CSV_FILEPATH.name)
     assert isinstance(df, pandas.DataFrame)
-    dfdict = df.to_dict()
-    expected = {"a": {0: 1, 1: 4}, "b": {0: 2, 1: 5}, "c": {0: 3, 1: 6}}
-    assert dfdict == expected
+    expected = pandas.read_csv(
+        SAMPLE_CSVGZ_FILEPATH,
+        sep=settings.DEFAULT_INPUT_CSV_DELIMITER,
+        encoding=settings.DEFAULT_INPUT_CSV_ENCODING,
+        header=settings.DEFAULT_INPUT_CSV_HEADER_LINES,
+    )
+    assert pandas.testing.assert_frame_equal(df, expected) is None
 
 
 @setup_teardown_s3_file(SAMPLE_CSVGZ_FILEPATH, bucket="igata-testbucket-localstack", key=SAMPLE_CSVGZ_FILEPATH.name)
 def test_prepare_csv_dataframe_csvgz():
     _, df, download_time, error_message = prepare_csv_dataframe(bucket="igata-testbucket-localstack", key=SAMPLE_CSVGZ_FILEPATH.name)
     assert isinstance(df, pandas.DataFrame)
-    dfdict = df.to_dict()
-    expected = {"a": {0: 1, 1: 4}, "b": {0: 2, 1: 5}, "c": {0: 3, 1: 6}}
-    assert dfdict == expected
+    expected = pandas.read_csv(
+        SAMPLE_CSVGZ_FILEPATH,
+        sep=settings.DEFAULT_INPUT_CSV_DELIMITER,
+        encoding=settings.DEFAULT_INPUT_CSV_ENCODING,
+        header=settings.DEFAULT_INPUT_CSV_HEADER_LINES,
+        compression="gzip",
+    )
+    assert pandas.testing.assert_frame_equal(df, expected) is None
 
 
 @setup_teardown_s3_file(SAMPLE_CSVGZ_FILEPATH, bucket="igata-testbucket-localstack", key=SAMPLE_CSVGZ_FILEPATH.name)
