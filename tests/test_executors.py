@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 from time import sleep
 
+from dummypredictor.mixins import DummyMixin
 from dummypredictor.predictors import (
     DummyPredictorNoInputNoOutput,
     DummyPredictorNoInputNoOutputVariableOutput,
@@ -13,6 +14,7 @@ from igata.cli import execute_prediction
 from igata.handlers.aws.input.s3 import S3BucketImageInputCtxManager
 from igata.handlers.aws.input.sqs import SQSMessageS3InputImageCtxManager
 from igata.handlers.aws.output.dynamodb import DynamodbOutputCtxManager
+from igata.handlers.aws.output.mixins.dyanamodb import DynamodbRequestUpdateMixIn
 from igata.handlers.aws.output.sqs import SQSRecordOutputCtxManager
 from igata.runners.executors import PredictionExecutor
 
@@ -407,3 +409,30 @@ def test_executor_predictor_with__set_predict_timeout():
     assert execute_summary["context_manager_exit_duration"] >= 1.0
     assert "errors" in execute_summary
     assert execute_summary["errors"] == 1
+
+
+@setup_teardown_s3_file(local_filepath=TEST_IMAGE_FILEPATH, bucket=TEST_BUCKETNAME, key=TEST_IMAGE_FILENAME)
+@setup_teardown_sqs_queue(queue_name=TEST_SQS_OUTPUT_QUEUENAME)
+def test_executor_predictor_with_outputctxmgrmixin():
+    class SleepExitOutputCtxManager(SQSRecordOutputCtxManager):
+        def __exit__(self, *args, **kwargs):
+            super().__exit__(*args, **kwargs)
+            sleep(1)
+
+    predictor = DummyPredictorNoInputNoOutputWithPredictTimeout5s()
+
+    queue_url = _get_queue_url(TEST_SQS_OUTPUT_QUEUENAME)
+    output_settings = {"sqs_queue_url": queue_url}
+    executor = PredictionExecutor(
+        predictor=predictor,
+        input_ctx_manager=S3BucketImageInputCtxManager,
+        input_settings={},
+        output_ctx_manager=SleepExitOutputCtxManager,
+        output_settings=output_settings,
+        output_ctxmgr_mixins=[DummyMixin],
+    )
+
+    assert DummyMixin in executor.output_ctx_manager.__bases__
+    with executor.get_output_ctx_manager_instance() as output_ctxmgr:
+        assert hasattr(output_ctxmgr, "mixin_method")
+        assert output_ctxmgr.mixin_method()

@@ -37,6 +37,7 @@ SNS = boto3.client("sns", region_name=settings.AWS_REGION, endpoint_url=settings
 
 
 def get_output_ctxmgr_mixins() -> List[Optional[Type[PostPredictHookMixInBase]]]:
+    """Check settings.OUTPUT_CTXMGR_MIXINS and get related class objects for given class names"""
     mixins = []
     if settings.OUTPUT_CTXMGR_MIXINS:
         for mixin_class_name in settings.OUTPUT_CTXMGR_MIXINS:
@@ -55,6 +56,7 @@ class PredictionExecutor:
         input_settings: dict,
         output_ctx_manager: Type[OutputCtxManagerBase],
         output_settings: dict,
+        output_ctxmgr_mixins: Optional[List[Type[PostPredictHookMixInBase]]] = None,
     ):
         self.predictor = predictor
         self.input_ctx_manager = input_ctx_manager
@@ -62,7 +64,9 @@ class PredictionExecutor:
         self.output_ctx_manager = output_ctx_manager
         self._output_settings = output_settings
 
-        output_ctxmgr_mixins = get_output_ctxmgr_mixins()
+        if not output_ctxmgr_mixins:
+            # if not passed check envars
+            output_ctxmgr_mixins = get_output_ctxmgr_mixins()
         if output_ctxmgr_mixins:
             logger.info(f"Adding OUTPUT_CTXMGR_MIXINS({settings.OUTPUT_CTXMGR_MIXINS})...")
             updated_bases = list(self.output_ctx_manager.__bases__)
@@ -111,6 +115,12 @@ class PredictionExecutor:
                         logger.error(f"(NotFoundException) Unable to publish to given SNS_TOPIC_ARN({sns_topic_arn}: {e.args}")
         return published_message_count
 
+    def get_input_ctx_manager_instance(self) -> Union[InputCtxManagerBase, Type[InputCtxManagerBase]]:
+        return self.input_ctx_manager(**self._input_settings)
+
+    def get_output_ctx_manager_instance(self) -> Union[OutputCtxManagerBase, Type[OutputCtxManagerBase]]:
+        return self.output_ctx_manager(**self._output_settings)
+
     def execute(self, inputs: Union[list, None] = None) -> Counter:
         """
         Run Predictor.predict() on the given input calling 'preprocess_input' and 'postprocess_output' methods if defined in Predictor class.
@@ -127,7 +137,7 @@ class PredictionExecutor:
         summary_results = Counter()
         sns_notifications = defaultdict(list)
         meta = {"input_settings": self._input_settings, "output_settings": self._output_settings, "request_info": None}
-        with self.input_ctx_manager(**self._input_settings) as input_ctxmgr, self.output_ctx_manager(**self._output_settings) as output_ctxmgr:
+        with self.get_input_ctx_manager_instance() as input_ctxmgr, self.get_output_ctx_manager_instance() as output_ctxmgr:
             for record, info in input_ctxmgr.get_records(inputs):  # process records as they become available
                 self.predictor.pre_predict_hook(record, info)
                 if "is_valid" in info and not info["is_valid"]:
