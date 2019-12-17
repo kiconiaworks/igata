@@ -25,7 +25,7 @@ class InputCtxManagerBase:
 
     @abstractmethod
     def __enter__(self):
-        pass
+        self
 
     @abstractmethod
     def __exit__(self, exception_type, exception_value, traceback):

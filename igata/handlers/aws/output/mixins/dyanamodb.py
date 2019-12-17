@@ -4,8 +4,7 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
-from hashlib import md5
-from typing import Generator, List, Tuple
+from typing import Any, Generator, List, Optional, Tuple
 
 import boto3
 from botocore.config import Config
@@ -41,18 +40,11 @@ def update_item(item: dict, tablename: str) -> dict:
 
     item is expected to have the following keys:
     - REQUESTS_TABLE_HASHKEY_KEYNAME
-    - REQUESTS_TABLE_RESULTS_KEYNAME
     - RESULTS_TABLE_STATE_FIELDNAME
     """
     table = DYNAMODB.Table(tablename)
     logger.info(f"Updating item in Table({tablename})...")
     logger.debug(f"item: {item}")
-    # update None to empty list for results
-    if item[settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME] is None:
-        msg = f'item[REQUESTS_TABLE_RESULTS_KEYNAME] is None, setting REQUESTS_TABLE_RESULTS_KEYNAME({item[settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME]}) to "[]"'
-        logger.warning(msg)
-        item[settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME] = "[]"  # to resolve issue with read from Pynamodb
-
     try:
         # Assure that updated `errors` field is not None
         errors_field_value = "[]"
@@ -73,9 +65,7 @@ def update_item(item: dict, tablename: str) -> dict:
                 ":state": item[settings.DYNAMODB_RESULTS_TABLE_STATE_FIELDNAME],
                 f":{settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME}": item[settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME],
                 ":errors": errors_field_value,
-                ":updated_at_timestamp": item.get(
-                    "updated_at_timestamp", int(datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).timestamp())
-                ),
+                ":updated_at_timestamp": item.get("updated_at_timestamp", int(datetime.datetime.now(datetime.timezone.utc).timestamp())),
             },
         )
     except Exception as e:
@@ -122,8 +112,29 @@ class DynamodbRequestUpdateMixIn(PostPredictHookMixInBase):
         super().__init__(*args, **kwargs)
         self.requests_tablename = kwargs["requests_tablename"]
 
+        if "get_additional_dynamodb_request_update_attributes" in kwargs and kwargs["get_additional_dynamodb_request_update_attributes"]:
+            logger.info('updating with "get_additional_dynamodb_request_update_attributes" with optional staticmethod...')
+            self.get_additional_dynamodb_request_update_attributes = kwargs["get_additional_dynamodb_request_update_attributes"]
+
         self.executor = ThreadPoolExecutor()
         self.futures = []
+
+    def post_predict_hook(self, record: List[dict], response: Any, meta: Optional[dict] = None) -> Any:
+        """Update record results with any necessary additional fields"""
+        # add additional dynamodb attributes to update
+        item = None
+        updated_record = []
+        for item in record:
+            additional_dynamodb_attributes = self.get_additional_dynamodb_request_update_attributes(item, response, meta)
+            if additional_dynamodb_attributes:
+                item.update(additional_dynamodb_attributes)
+            updated_record.append(item)
+        return item
+
+    @staticmethod
+    def get_additional_dynamodb_request_update_attributes(record: Any, response: Any, meta: Optional[dict] = None) -> dict:
+        """Hook that allows defining field attributes not contained in the result record"""
+        return {}
 
     def put_records(self, records: List[dict], **kwargs) -> dict:
         """
@@ -174,9 +185,6 @@ class DynamodbRequestUpdateMixIn(PostPredictHookMixInBase):
             "elapsed": end - start,
         }
         return summary
-
-    def __enter__(self):
-        return self
 
     def __exit__(self, *args, **kwargs):
         # make sure that any remaining records are put

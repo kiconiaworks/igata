@@ -4,12 +4,31 @@ Project/package-wide settings
 import datetime
 import logging
 import os
+from distutils.util import strtobool
 
 logger = logging.getLogger(__name__)
 
 JST = datetime.timezone(datetime.timedelta(hours=+9), "JST")
 
 MAX_POST_IMAGES = 50
+
+DEFAULT_INPUT_CONTEXT_MANAGER_NAME = "S3BucketImageInputCtxManager"
+INPUT_CONTEXT_MANAGER_NAME = os.getenv("INPUT_CONTEXT_MANAGER", DEFAULT_INPUT_CONTEXT_MANAGER_NAME)
+DEFAULT_OUTPUT_CONTEXT_MANAGER_NAME = "SQSRecordOutputCtxManager"
+OUTPUT_CONTEXT_MANAGER_NAME = os.getenv("OUTPUT_CONTEXT_MANAGER", DEFAULT_OUTPUT_CONTEXT_MANAGER_NAME)
+
+PREDICTOR_MODULE = os.getenv("PREDICTOR_MODULE", None)
+DEFAULT_PREDICTOR_CLASS_NAME = "Predictor"
+PREDICTOR_CLASS_NAME = os.getenv("PREDICTOR_CLASS_NAME", DEFAULT_PREDICTOR_CLASS_NAME)
+
+DEFAULT_INSTANCE_ON_AWS = "True"
+INSTANCE_ON_AWS = strtobool(os.getenv("INSTANCE_ON_AWS", DEFAULT_INSTANCE_ON_AWS))
+
+DEFAULT_AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING = "True"
+AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING = strtobool(os.getenv("AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING", DEFAULT_AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING))
+
+
+# aws boto3 configurations
 AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "ap-northeast-1")
 
 DEFAULT_S3_ENDPOINT = f"https://s3.{AWS_REGION}.amazonaws.com"

@@ -40,5 +40,5 @@ class DummyException(Exception):
 
 
 def test_registered_output_context_managers():
-    supported_output_context_managers = ("S3BucketCsvFileOutputCtxManager", "SQSRecordOutputCtxManager", "DynamodbOutputCtxManager")
+    supported_output_context_managers = ("S3BucketPandasDataFrameCsvFileOutputCtxManager", "SQSRecordOutputCtxManager", "DynamodbOutputCtxManager")
     assert all(configured in supported_output_context_managers for configured in OUTPUT_CONTEXT_MANAGERS)

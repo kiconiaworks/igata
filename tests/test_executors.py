@@ -3,16 +3,24 @@ import logging
 import sys
 from pathlib import Path
 from time import sleep
+from typing import Dict, List, Tuple
+from unittest import TestCase
 
+import pandas
 from dummypredictor.mixins import DummyMixin
 from dummypredictor.predictors import (
+    DummyInPandasDataFrameOutPandasCSVPredictor,
     DummyPredictorNoInputNoOutput,
     DummyPredictorNoInputNoOutputVariableOutput,
     DummyPredictorNoInputNoOutputWithPredictTimeout5s,
+    DummyPredictorOptionalInValidStaticMethods,
+    DummyPredictorOptionalValidStaticMethods,
 )
 from igata.cli import execute_prediction
+from igata.handlers.aws.input import InputCtxManagerBase
 from igata.handlers.aws.input.s3 import S3BucketImageInputCtxManager
 from igata.handlers.aws.input.sqs import SQSMessageS3InputImageCtxManager
+from igata.handlers.aws.output import OutputCtxManagerBase
 from igata.handlers.aws.output.dynamodb import DynamodbOutputCtxManager
 from igata.handlers.aws.output.mixins.dyanamodb import DynamodbRequestUpdateMixIn
 from igata.handlers.aws.output.sqs import SQSRecordOutputCtxManager
@@ -436,3 +444,148 @@ def test_executor_predictor_with_outputctxmgrmixin():
     with executor.get_output_ctx_manager_instance() as output_ctxmgr:
         assert hasattr(output_ctxmgr, "mixin_method")
         assert output_ctxmgr.mixin_method()
+
+
+class DummyInputCtxManagerWithOptionalStaticMethods(InputCtxManagerBase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.get_pandas_read_csv_kwargs = kwargs.get("get_pandas_read_csv_kwargs", None)
+
+    def get_records(self, *args, **kwargs):
+
+        yield self.get_pandas_read_csv_kwargs(True), {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exception_type, exception_value, traceback):
+        pass
+
+
+class DummyOutputCtxManagerWithOptionalStaticMethods(OutputCtxManagerBase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if "get_pandas_to_csv_kwargs_func" in kwargs:
+            self.get_pandas_to_csv_kwargs_func = kwargs.get("get_pandas_to_csv_kwargs")
+        if "get_additional_dynamodb_request_update_attributes" in kwargs:
+            self.get_additional_dynamodb_request_update_attributes = kwargs.get("get_additional_dynamodb_request_update_attributes")
+
+    def put_records(self, record, **kwargs):
+        """Define method to put data to the desired output target"""
+        pass
+
+    def put_record(self, record, *args, **kwargs) -> int:
+        """
+        Cache record result until RESULT_RECORD_CHUNK_SIZE is met or exceeded,
+        then call the sub-class defined put_records() method to process records.
+        """
+        new_record = []
+        for result in record:
+            self._record_results.append(result)
+        return True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        pass
+
+    def required_kwargs(cls) -> Tuple:
+        """Define the required instantiation kwarg argument names"""
+        return tuple()
+
+
+def test_executor__optional_predictor_inputctxmgr_staticmethods__valid():
+    predictor = DummyPredictorOptionalValidStaticMethods()
+    output_settings = {}
+    executor = PredictionExecutor(
+        predictor=predictor,
+        input_ctx_manager=DummyInputCtxManagerWithOptionalStaticMethods,
+        input_settings={},
+        output_ctx_manager=DummyOutputCtxManagerWithOptionalStaticMethods,
+        output_settings=output_settings,
+    )
+    execute_summary = executor.execute()
+    assert execute_summary  # simple test to confirm basic functionality
+
+
+def make_student_columns() -> Tuple[List[str], Dict[str, str]]:
+    student_columns = ["student_id"]
+    student_column_dtypes = {"student_id": "str"}
+
+    qs = [(1, 18), (2, 29), (3, 24), (4, 16), (5, 12)]
+    for i, m in qs:
+        for j in range(1, m + 1):
+            q_col = f"q{i}-{j}_cd"
+            student_columns.append(q_col)
+            student_column_dtypes[q_col] = "float"
+    return student_columns, student_column_dtypes
+
+
+def make_company_columns() -> Tuple[List[str], Dict[str, str]]:
+    company_columns = ["company_id", "employee_id"]
+    company_column_dtypes = {"company_id": "str", "employee_id": "str"}
+    qs = [(1, 18), (2, 29), (3, 24), (4, 16), (5, 14)]
+    for i, m in qs:
+        for j in range(1, m + 1):
+            q_col = f"q{i}-{j}_cd"
+            company_columns.append(q_col)
+            company_column_dtypes[q_col] = "float"
+    return company_columns, company_column_dtypes
+
+
+#
+#
+# class SurveyRecordPredictorTestCase(TestCase):
+#     def setUp(self) -> None:
+#         # self.maxDiff = None
+#         self.students_csv_filepath = BASE_TEST_DIRECTORY / "student_data.csv.gz"
+#         self.companies_csv_filepath = BASE_TEST_DIRECTORY / "company_data.csv.gz"
+#
+#         self.students_colnames, self.students_dtypes = make_student_columns()
+#         self.students_input_df = csv_dataframe_load(self.students_csv_filepath, names=self.students_colnames, dtypes=self.students_dtypes)
+#
+#         self.companies_colnames, self.companies_dtypes = make_company_columns()
+#         self.companies_input_df = csv_dataframe_load(self.companies_csv_filepath, names=self.companies_colnames, dtypes=self.companies_dtypes)
+#
+#         self.input_record = {
+#             "job_id": "f02e2c3a-8de1-49af-9d0d-6220c0021999",
+#             "job_index": 1,
+#             "students_1_1_20190809182030.csv.gz__dataframe": self.students_input_df,
+#             "companies_1_1_20190809182030.csv.gz__dataframe": self.companies_input_df,
+#             "timeout_seconds": 2100,
+#         }
+#         self.input_meta = {"s3uri_keys": ["students_1_1_20190809182030.csv.gz", "companies_1_1_20190809182030.csv.gz"], "is_valid": True}
+#
+#     def test_surveyrecordpredictor__valid_input(self):
+#         predictor = DummyInPandasDataFrameOutPandasCSVPredictor()
+#         results = predictor.predict(self.input_record, self.input_meta)
+#         self.assertEqual(len(results), 1)
+#
+#         result = results[0]
+#         expected_result_keys = ("filename", "gzip", "dataframe", "to_csv_kwargs", "job_id")
+#         for expected_key in expected_result_keys:
+#             self.assertIn(expected_key, result)
+#
+#         result_df = result["dataframe"]
+#         self.assertTrue(isinstance(result_df, pandas.DataFrame))
+#
+#     def test_surveyrecordpredictor__students_csv_read(self):
+#         predictor = DummyInPandasDataFrameOutPandasCSVPredictor()
+#         csv_read_kwargs = predictor.get_read_csv_kwargs("students_1_1_20190809182030.csv.gz")
+#
+#         expected_kwargs = {"header": None, "sep": ",", "encoding": "utf8", "names": self.students_colnames, "dtype": self.students_dtypes}
+#         self.assertDictEqual(csv_read_kwargs, expected_kwargs)
+#
+#         expected_df = self.students_input_df
+#         expected_dict = expected_df.to_dict()
+#
+#         actual_df = pandas.read_csv(self.students_csv_filepath, **csv_read_kwargs)
+#         actual_dict = actual_df.to_dict()
+#
+#         self.assertEqual(set(actual_dict.keys()), set(expected_dict.keys()))
+#
+#         # This function is intended to compare two DataFrames and output any differences.
+#         # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.testing.assert_frame_equal.html
+#         result = pandas.testing.assert_frame_equal(actual_df, expected_df)
+#         self.assertFalse(result, result)

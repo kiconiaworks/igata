@@ -5,6 +5,7 @@ import os
 import signal
 import time
 from collections import Counter, defaultdict
+from types import FunctionType
 from typing import List, Optional, Tuple, Type, Union
 
 import boto3
@@ -34,6 +35,11 @@ PREDICTOR_RESULTS_KEYNAME = os.getenv("PREDICTOR_RESULTS_KEYNAME", DEFAULT_PREDI
 SNS_MAX_MESSAGE_SIZE_BYTES = 262144
 
 SNS = boto3.client("sns", region_name=settings.AWS_REGION, endpoint_url=settings.SNS_ENDPOINT)
+
+# optional staticmethods defined in the predictor that can be attached to the INPUT_CTXMGR
+OPTIONAL_PREDICTOR_INPUTCTXMGR_STATICMETHODS = ("get_pandas_read_csv_kwargs",)
+# optional staticmethods defined in the predictor that can be attached to the OUTPUT_CTXMGR
+OPTIONAL_PREDICTOR_OUTPUTCTXMGR_STATICMETHODS = ("get_pandas_to_csv_kwargs", "get_additional_dynamodb_request_update_attributes")
 
 
 def get_output_ctxmgr_mixins() -> List[Optional[Type[PostPredictHookMixInBase]]]:
@@ -116,9 +122,25 @@ class PredictionExecutor:
         return published_message_count
 
     def get_input_ctx_manager_instance(self) -> Union[InputCtxManagerBase, Type[InputCtxManagerBase]]:
+        for optional_staticmethod_name in OPTIONAL_PREDICTOR_INPUTCTXMGR_STATICMETHODS:
+            if hasattr(self.predictor, optional_staticmethod_name):
+                logger.info(f"adding INPUT optional_staticmethod({optional_staticmethod_name})...")
+                optional_staticmethod = getattr(self.predictor, optional_staticmethod_name)
+                if isinstance(optional_staticmethod, FunctionType):
+                    self._input_settings[optional_staticmethod_name] = optional_staticmethod
+                else:
+                    logger.error(f"OPTIONAL_PREDICTOR_INPUTCTXMGR_STATICMETHOD({optional_staticmethod_name}) is not a staticmethod, SKIPPING!")
         return self.input_ctx_manager(**self._input_settings)
 
     def get_output_ctx_manager_instance(self) -> Union[OutputCtxManagerBase, Type[OutputCtxManagerBase]]:
+        for optional_staticmethod_name in OPTIONAL_PREDICTOR_OUTPUTCTXMGR_STATICMETHODS:
+            if hasattr(self.predictor, optional_staticmethod_name):
+                logger.info(f"adding OUTPUT optional_staticmethod({optional_staticmethod_name})...")
+                optional_staticmethod = getattr(self.predictor, optional_staticmethod_name)
+                if isinstance(optional_staticmethod, FunctionType):
+                    self._output_settings[optional_staticmethod_name] = optional_staticmethod
+                else:
+                    logger.error(f"OPTIONAL_PREDICTOR_OUTPUTCTXMGR_STATICMETHOD({optional_staticmethod_name}) is not a staticmethod, SKIPPING!")
         return self.output_ctx_manager(**self._output_settings)
 
     def execute(self, inputs: Union[list, None] = None) -> Counter:

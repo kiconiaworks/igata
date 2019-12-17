@@ -1,28 +1,11 @@
-import csv
 import logging
 import sys
 from pathlib import Path
 
 import boto3
-import pandas
 from igata import settings
-from igata.handlers import INPUT_CONTEXT_MANAGERS
-from igata.handlers.aws.input.s3 import S3BucketCSVInputCtxManager, S3BucketImageInputCtxManager
-from igata.handlers.aws.input.sqs import (
-    SQSMessagePassthroughCtxManager,
-    SQSMessageS3InputCSVPandasDataFrameCtxManager,
-    SQSMessageS3InputCSVReaderCtxManager,
-    SQSMessageS3InputImageCtxManager,
-)
-from tests.utils import (
-    _create_sqs_queue,
-    _delete_sqs_queue,
-    _upload_to_s3,
-    setup_teardown_s3_file,
-    setup_teardown_sqs_queue,
-    sqs_queue_get_attributes,
-    sqs_queue_send_message,
-)
+from igata.handlers.aws.input.s3 import S3BucketImageInputCtxManager
+from tests.utils import setup_teardown_s3_file
 
 # add test root to PATH in order to load dummypredictor
 BASE_TEST_DIRECTORY = Path(__file__).absolute().parent.parent.parent

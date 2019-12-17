@@ -1,8 +1,8 @@
 import datetime
 import logging
 import os
-from io import BytesIO, StringIO, TextIOWrapper
-from typing import List, Union
+from io import BytesIO, StringIO
+from typing import List, Optional, Union
 
 import boto3
 
@@ -30,17 +30,9 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
             self.output_s3_prefix = self.output_s3_prefix[1:]
         if self.output_s3_prefix and self.output_s3_prefix.endswith("/"):
             self.output_s3_prefix = self.output_s3_prefix[:-1]
-
-        self.to_csv_kwargs = kwargs.get("to_csv_kwargs", None)
-        if not self.to_csv_kwargs:
-            # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.to_csv.html
-            self.to_csv_kwargs = dict(
-                encoding=settings.DEFAULT_OUTPUT_CSV_ENCODING,
-                sep=settings.DEFAULT_OUTPUT_CSV_DELIMITER,
-                header=False,
-                index=False,
-                compression="gzip",
-            )
+        if "get_pandas_to_csv_kwargs" in kwargs and kwargs["get_pandas_to_csv_kwargs"]:
+            logger.info('overwritting "self.get_pandas_to_csv_kwargs" with provided staticmethod')
+            self.get_pandas_to_csv_kwargs = kwargs["get_pandas_to_csv_kwargs"]
 
     @classmethod
     def required_kwargs(cls):
@@ -59,7 +51,36 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
     def put_records(self, records: List[Union[list, tuple, dict]], encoding: str = "utf8"):
         pass
 
-    def put_record(self, record: List[dict], *args, **kwargs) -> int:
+    @staticmethod
+    def get_pandas_to_csv_kwargs(result: dict) -> dict:
+        """
+        Determine the appropriate pandas.to_csv(**kwargs) needed to write out the file
+        Result Record:
+            [
+                {
+                    "job_id": {JOB_ID|REQUEST_ID},
+                    "filename": {OUTPUT_FILENAME},
+                    "dataframe": {result dataframe},
+                }
+            ]
+        """
+        filename = result["filename"]
+        gzip_result = False
+        if filename.endswith("gz"):
+            logger.warning(f'filename({filename}).endswith(".gz"), will gzip results!')
+            gzip_result = True
+
+        compression_type = "gzip" if gzip_result else None
+        kwargs = {
+            "sep": settings.DEFAULT_INPUT_CSV_DELIMITER,
+            "encoding": settings.DEFAULT_INPUT_CSV_ENCODING,
+            "header": settings.DEFAULT_INPUT_CSV_HEADER_LINES,
+            "index": False,
+            "compression": compression_type,
+        }
+        return kwargs
+
+    def put_record(self, record: List[dict], *args, **kwargs) -> List[Optional[dict]]:
         """
         Result Record:
             [
@@ -68,7 +89,6 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
                     "filename": {OUTPUT_FILENAME},
                     "gzip": True,
                     "dataframe": {result dataframe},
-                    "to_csv_kwargs": {}
                 }
             ]
         """
@@ -79,25 +99,13 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
             if not filename:
                 filename = f"{job_id}.csv"
 
-            gzip_result = result.get("gzip", False)
-            if filename.endswith("gzip"):
-                logger.warning(f'filename({filename}).endswith(".gz"), will gzip results!')
-                gzip_result = True
-            compression_type = "gzip" if gzip_result else None
-
-            if gzip_result:
-                if not filename.endswith(".gz"):
-                    filename += ".gz"
-
             key = f"{self.output_s3_prefix}/{filename}"
             logger.info(f"preparing ({filename})...")
 
-            df_csv_buffer = StringIO()  # BytesIO()
+            df_csv_buffer = StringIO()
             df = result["dataframe"]
-            kwargs = self.to_csv_kwargs
-            if "to_csv_kwargs" in result:
-                for k, v in result["to_csv_kwargs"].items():
-                    kwargs[k] = v
+            kwargs = self.get_pandas_to_csv_kwargs(result)
+
             logger.debug(f"csv output kwargs: {kwargs}")
             df.to_csv(df_csv_buffer, **kwargs)
             logger.info(f"preparing: SUCCESS!")

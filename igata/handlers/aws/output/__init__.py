@@ -44,11 +44,9 @@ class OutputCtxManagerBase:
             self._record_results = []
         return put_records_count
 
-    @abstractmethod
     def __enter__(self):
-        pass
+        self
 
-    @abstractmethod
     def __exit__(self):
         pass
 

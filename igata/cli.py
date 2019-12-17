@@ -3,7 +3,6 @@ import logging
 import os
 import sys
 from collections import Counter
-from distutils.util import strtobool
 from pathlib import Path
 from typing import List, Type
 
@@ -11,14 +10,12 @@ import rx
 import rx.operators as ops
 from rx.concurrency import ThreadPoolScheduler
 
-from . import __version__
+from . import __version__, settings
 from .checkers.aws.ec2 import get_instance_type
 from .checkers.aws.observers import CheckersObserver
 from .checkers.aws.spot import spot_instance_check_observable
 from .defaults import DEFAULT_MODEL_VERSION
 from .handlers import (
-    DEFAULT_INPUT_CONTEXT_MANAGER_NAME,
-    DEFAULT_OUTPUT_CONTEXT_MANAGER_NAME,
     INPUT_CONTEXT_MANAGER_REQUIRED_ENVARS,
     INPUT_CONTEXT_MANAGERS,
     INPUT_CTXMGR_ENVAR_PREFIX,
@@ -48,19 +45,6 @@ logging.getLogger("botocore").setLevel(logging.WARNING)
 logging.getLogger("pynamodb.connection.base").setLevel(logging.WARNING)
 
 logger = logging.getLogger("cliexecutor")
-
-INPUT_CONTEXT_MANAGER_NAME = os.getenv("INPUT_CONTEXT_MANAGER", DEFAULT_INPUT_CONTEXT_MANAGER_NAME)
-OUTPUT_CONTEXT_MANAGER_NAME = os.getenv("OUTPUT_CONTEXT_MANAGER", DEFAULT_OUTPUT_CONTEXT_MANAGER_NAME)
-
-PREDICTOR_MODULE = os.getenv("PREDICTOR_MODULE", None)
-DEFAULT_PREDICTOR_CLASS_NAME = "Predictor"
-PREDICTOR_CLASS_NAME = os.getenv("PREDICTOR_CLASS_NAME", DEFAULT_PREDICTOR_CLASS_NAME)
-
-DEFAULT_INSTANCE_ON_AWS = "True"
-INSTANCE_ON_AWS = strtobool(os.getenv("INSTANCE_ON_AWS", DEFAULT_INSTANCE_ON_AWS))
-
-DEFAULT_AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING = "True"
-AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING = strtobool(os.getenv("AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING", DEFAULT_AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING))
 
 
 def execute_prediction(predictor, input_ctx_manager, input_settings, output_ctx_manager, output_settings, inputs: List[str] = None) -> Counter:
@@ -165,15 +149,15 @@ if __name__ == "__main__":
         "-m",
         "--module-name",
         dest="module_name",
-        default=PREDICTOR_MODULE,
-        help=f"The dotted path to the module containing the Predictor class [DEFAULT={PREDICTOR_MODULE}]",
+        default=settings.PREDICTOR_MODULE,
+        help=f"The dotted path to the module containing the Predictor class [DEFAULT={settings.PREDICTOR_MODULE}]",
     )
     parser.add_argument(
         "-p",
         "--predictor-class-name",
         dest="predictor_class_name",
-        default=PREDICTOR_CLASS_NAME,
-        help=f"Path to the root package [DEFAULT={PREDICTOR_CLASS_NAME}]",
+        default=settings.PREDICTOR_CLASS_NAME,
+        help=f"Path to the root package [DEFAULT={settings.PREDICTOR_CLASS_NAME}]",
     )
     parser.add_argument("--model-version", dest="model_version", default=MODEL_VERSION, help="Version of model used for prediction")
     parser.add_argument(
@@ -181,16 +165,16 @@ if __name__ == "__main__":
         "--input-ctx-manager",
         dest="input_ctx_manager",
         type=input_contenxt_manager,
-        default=INPUT_CONTEXT_MANAGERS[INPUT_CONTEXT_MANAGER_NAME],
-        help=f"InputCtxManager ({INPUT_CONTEXT_MANAGERS.keys()}) [DEFAULT={INPUT_CONTEXT_MANAGER_NAME}]",
+        default=INPUT_CONTEXT_MANAGERS[settings.INPUT_CONTEXT_MANAGER_NAME],
+        help=f"InputCtxManager ({INPUT_CONTEXT_MANAGERS.keys()}) [DEFAULT={settings.INPUT_CONTEXT_MANAGER_NAME}]",
     )
     parser.add_argument(
         "-o",
         "--output-ctx-manager",
         dest="output_ctx_manager",
         type=output_context_manager,
-        default=OUTPUT_CONTEXT_MANAGERS[OUTPUT_CONTEXT_MANAGER_NAME],
-        help=f"Result OutputCtxManager ({OUTPUT_CONTEXT_MANAGERS.keys()}) [DEFAULT={OUTPUT_CONTEXT_MANAGER_NAME}]",
+        default=OUTPUT_CONTEXT_MANAGERS[settings.OUTPUT_CONTEXT_MANAGER_NAME],
+        help=f"Result OutputCtxManager ({OUTPUT_CONTEXT_MANAGERS.keys()}) [DEFAULT={settings.OUTPUT_CONTEXT_MANAGER_NAME}]",
     )
     parser.add_argument(
         "inputs",
@@ -226,13 +210,13 @@ if __name__ == "__main__":
     scheduler = ThreadPoolScheduler(max_workers=1)
     checkers_observable = rx.empty()
 
-    if INSTANCE_ON_AWS:
+    if settings.INSTANCE_ON_AWS:
         logger.info(f"instance_type: {get_instance_type()}")  # Assumes being run on AWS EC2 instance
-        if args.is_spot_instance or AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING:
+        if args.is_spot_instance or settings.AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING:
             logger.info(f"Start spot_instance_observable monitoring...")
             spot_instance_observable = spot_instance_check_observable()
             checkers_observable = checkers_observable.pipe(ops.merge(spot_instance_observable))
-    elif args.is_spot_instance or AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING:
+    elif args.is_spot_instance or settings.AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING:
         logger.warning(
             f'"--spot-instance" flag or AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING envar given, ' f"but INSTANCE_ON_AWS == False, logging NOT performed!"
         )
