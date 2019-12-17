@@ -100,8 +100,11 @@ def _get_queue_url(queue_name):
 
 
 def _delete_sqs_queue(queue_name):
-    queue_url = _get_queue_url(queue_name)
-    SQS.delete_queue(QueueUrl=queue_url)
+    try:
+        queue_url = _get_queue_url(queue_name)
+        SQS.delete_queue(QueueUrl=queue_url)
+    except Exception:
+        pass
 
 
 def setup_teardown_sqs_queue(queue_name):
