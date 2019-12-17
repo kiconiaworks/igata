@@ -49,6 +49,7 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
         return required_keys
 
     def put_records(self, records: List[Union[list, tuple, dict]], encoding: str = "utf8"):
+        """Required implementation method."""
         pass
 
     @staticmethod

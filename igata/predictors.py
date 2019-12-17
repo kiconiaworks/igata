@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 def sigalrm_handler(signum: int, frame: Any) -> None:
+    """Handles the SIGALRM raised for use in Predictor.set_predict_timeout()"""
     logger.debug(f"(SIGALAM-{signum}) predictor timeout called")
     raise PredictTimeoutError("predict() timedout!")
 

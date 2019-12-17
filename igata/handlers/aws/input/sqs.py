@@ -136,6 +136,7 @@ class SQSMessageS3InputImageCtxManager(InputCtxManagerBase):
 
 
 def get_default_pandas_read_csv_kwargs(key: str) -> dict:
+    """Returns the default pandas.read_csv(**kwargs)"""
     default_pandas_read_csv_kwargs = {
         "sep": settings.DEFAULT_INPUT_CSV_DELIMITER,
         "encoding": settings.DEFAULT_INPUT_CSV_ENCODING,
