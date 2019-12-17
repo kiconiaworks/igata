@@ -10,7 +10,6 @@ from typing import Any, Generator, List, Optional, Tuple
 import boto3
 from botocore.config import Config
 from igata import settings
-from igata.utils import flatten
 
 from . import PostPredictHookMixInBase
 

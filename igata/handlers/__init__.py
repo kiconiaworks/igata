@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from .aws.input.s3 import S3BucketCSVInputCtxManager, S3BucketImageInputCtxManager
+from .aws.input.s3 import S3BucketImageInputCtxManager
 from .aws.input.sqs import SQSMessageS3InputCSVPandasDataFrameCtxManager, SQSMessageS3InputImageCtxManager
 from .aws.output.dynamodb import DynamodbOutputCtxManager
 from .aws.output.mixins.dyanamodb import DynamodbRequestUpdateMixIn
