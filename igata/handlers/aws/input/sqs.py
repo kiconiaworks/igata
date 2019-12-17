@@ -1,4 +1,3 @@
-import csv
 import json
 import logging
 import time
@@ -11,7 +10,7 @@ import numpy as np
 import pandas
 
 from .... import settings
-from ....utils import parse_s3_uri, prepare_csv_dataframe, prepare_csv_reader, prepare_images, s3_key_exists
+from ....utils import parse_s3_uri, prepare_csv_dataframe, prepare_images, s3_key_exists
 from . import InputCtxManagerBase
 
 logger = logging.getLogger("cliexecutor")
@@ -142,6 +141,7 @@ def get_default_pandas_read_csv_kwargs(key: str) -> dict:
         "encoding": settings.DEFAULT_INPUT_CSV_ENCODING,
         "header": settings.DEFAULT_INPUT_CSV_HEADER_LINES,
     }
+    return default_pandas_read_csv_kwargs
 
 
 class SQSMessageS3InputCSVPandasDataFrameCtxManager(InputCtxManagerBase):

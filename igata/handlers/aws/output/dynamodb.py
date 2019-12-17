@@ -49,7 +49,10 @@ def update_item(item: dict, tablename: str) -> dict:
     logger.debug(f"item: {item}")
     # update None to empty list for results
     if item[settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME] is None:
-        msg = f'item[REQUESTS_TABLE_RESULTS_KEYNAME] is None, setting REQUESTS_TABLE_RESULTS_KEYNAME({item[settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME]}) to "[]"'
+        msg = (
+            f"item[REQUESTS_TABLE_RESULTS_KEYNAME] is None, "
+            f'setting REQUESTS_TABLE_RESULTS_KEYNAME({item[settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME]}) to "[]"'
+        )
         logger.warning(msg)
         item[settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME] = "[]"  # to resolve issue with read from Pynamodb
 

@@ -205,7 +205,7 @@ class PredictionExecutor:
                                 }
                                 record_results.update(request_info)
                                 logger.debug(f"Added request info to resulting record_results: {record_results}")
-                        except PredictTimeoutError as e:
+                        except PredictTimeoutError:
                             error_message = f"set Predict Timeout value exceeded: {self.predictor.PROCESSING_TIMEOUT_SECONDS}s"
                             logger.error(error_message)
                             if "errors" not in info:
