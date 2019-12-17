@@ -1,6 +1,7 @@
 import datetime
 import json
 import logging
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
@@ -19,6 +20,9 @@ logger = logging.getLogger("cliexecutor")
 TEN_SECONDS = 10
 config = Config(connect_timeout=TEN_SECONDS, retries={"max_attempts": 5})
 DYNAMODB = boto3.resource("dynamodb", config=config, region_name=settings.AWS_REGION, endpoint_url=settings.DYNAMODB_ENDPOINT)
+
+
+DYNAMODB_RESULTS_TABLE_STATE_FIELDNAME = os.getenv("DYNAMODB_RESULTS_TABLE_STATE_FIELDNAME", "predictor_status")
 
 
 class ResultExpectedKeyError(KeyError):
@@ -53,19 +57,22 @@ def update_item(item: dict, tablename: str) -> dict:
         response = table.update_item(
             Key={settings.DYNAMODB_REQUESTS_TABLE_HASHKEY_KEYNAME: item[settings.DYNAMODB_REQUESTS_TABLE_HASHKEY_KEYNAME]},
             UpdateExpression=(
-                "SET " "#s = :state, " "#r = :result, " "#e = :errors, " "#u = :updated_at_timestamp"  # should be REQUESTS_TABLE_RESULTS_KEYNAME
+                # should be REQUESTS_TABLE_RESULTS_KEYNAME
+                "SET #s = :predictor_status, #r = :result_s3_uris, #e = :errors, #u = :updated_timestamp, #c = :completed_timestamp"
             ),
             ExpressionAttributeNames={
-                "#s": settings.DYNAMODB_RESULTS_TABLE_STATE_FIELDNAME,
-                "#r": settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME,
+                "#s": "predictor_status",  # settings.DYNAMODB_RESULTS_TABLE_STATE_FIELDNAME,
+                "#u": "updated_timestamp",  # settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME,
+                "#c": "completed_timestamp",
+                "#r": "result_s3_uris",
                 "#e": "errors",
-                "#u": "updated_at_timestamp",
             },
             ExpressionAttributeValues={
-                ":state": item[settings.DYNAMODB_RESULTS_TABLE_STATE_FIELDNAME],
-                f":{settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME}": item[settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME],
+                ":predictor_status": item[settings.DYNAMODB_RESULTS_TABLE_STATE_FIELDNAME],
+                f":result_s3_uris": item["result_s3_uris"],
                 ":errors": errors_field_value,
-                ":updated_at_timestamp": item.get("updated_at_timestamp", int(datetime.datetime.now(datetime.timezone.utc).timestamp())),
+                ":updated_timestamp": item.get("updated_timestamp", int(datetime.datetime.now(datetime.timezone.utc).timestamp())),
+                ":completed_timestamp": item.get("completed_timestamp", int(datetime.datetime.now(datetime.timezone.utc).timestamp())),
             },
         )
     except Exception as e:
@@ -108,6 +115,9 @@ def prepare_record(record: dict) -> Tuple[dict, dict]:
 class DynamodbRequestUpdateMixIn(PostPredictHookMixInBase):
     """Output records to dynamodb"""
 
+    _record_results = []
+    results_keyname = "result_s3_uris"
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.requests_tablename = kwargs["requests_tablename"]
@@ -144,8 +154,6 @@ class DynamodbRequestUpdateMixIn(PostPredictHookMixInBase):
            - Original requests table
                - for returning the full result related to the original request
         """
-        detailed_results_table = DYNAMODB.Table(self.results_tablename)
-
         start = time.time()
         request_update_items = 0
         detailed_results_put_items = 0
@@ -155,27 +163,24 @@ class DynamodbRequestUpdateMixIn(PostPredictHookMixInBase):
         DYNAMODB_RESULTS_PROCESSED_STATE = settings.DYNAMODB_RESULTS_PROCESSED_STATE
         DYNAMODB_RESULTS_ERROR_STATE = settings.DYNAMODB_RESULTS_ERROR_STATE
 
-        DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME = settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME
-
         logger.debug(f"DYNAMODB_RESULTS_PROCESSED_STATE: {DYNAMODB_RESULTS_PROCESSED_STATE}")
-        logger.debug(f"DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME: {DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME}")
-        with detailed_results_table.batch_writer() as detailed_writer:
-            for record in records:
-                # update record with state, so it is included in the resulting nested_keys
-                state = DYNAMODB_RESULTS_PROCESSED_STATE
-                if "errors" in record and record["errors"]:
-                    state = DYNAMODB_RESULTS_ERROR_STATE
-                record[DYNAMODB_RESULTS_TABLE_STATE_FIELDNAME] = state
-                prepared_record, original_record_nested_data = prepare_record(record)
 
-                if self.results_keyname not in prepared_record:
-                    logger.warning(f'Expected Key("{self.results_keyname}") not in {prepared_record}, setting "{self.results_keyname}" to "[]"')
-                    prepared_record[self.results_keyname] = "[]"
-                logger.debug(f"update_item (prepared_record): {prepared_record}")
+        for record in records:
+            # update record with state, so it is included in the resulting nested_keys
+            state = DYNAMODB_RESULTS_PROCESSED_STATE
+            if "errors" in record and record["errors"]:
+                state = DYNAMODB_RESULTS_ERROR_STATE
+            record["predictor_status"] = state
+            prepared_record, original_record_nested_data = prepare_record(record)
 
-                future = self.executor.submit(update_item, prepared_record, self.requests_tablename)
-                self.futures.append(future)
-                request_update_items += 1
+            if self.results_keyname not in prepared_record:
+                logger.warning(f'Expected Key("{self.results_keyname}") not in {prepared_record}, setting "{self.results_keyname}" to "[]"')
+                prepared_record[self.results_keyname] = "[]"
+            logger.debug(f"update_item (prepared_record): {prepared_record}")
+
+            future = self.executor.submit(update_item, prepared_record, self.requests_tablename)
+            self.futures.append(future)
+            request_update_items += 1
 
         end = time.time()
         summary = {
