@@ -113,7 +113,7 @@ def test_output_handler_dynamodboutputctxmanager():
         result_item = result["Item"]
         assert result_item
         assert "state" in result_item
-        assert result_item["state"] == "processed"
+        assert result_item["state"] == settings.DYNAMODB_RESULTS_PROCESSED_STATE
         assert result_item["result"] == result_json
         assert "collection_id" in result_item
         assert result_item["collection_id"] == collection_id
@@ -121,7 +121,7 @@ def test_output_handler_dynamodboutputctxmanager():
         result = request_table.get_item(Key={"request_id": request_item_no_result["request_id"]})
         result_item_no_result = result["Item"]
         assert result_item_no_result
-        assert result_item_no_result["state"] == "processed"
+        assert result_item_no_result["state"] == settings.DYNAMODB_RESULTS_PROCESSED_STATE
         assert any(result_item_no_result["result"] == null_value for null_value in (None, "[]", []))
         assert result_item_no_result["collection_id"] == collection_id
 
@@ -191,7 +191,7 @@ def test_output_handler_dynamodboutputctxmanager_put_record():
         result_item = result["Item"]
         assert result_item
         assert "state" in result_item
-        assert result_item["state"] == "processed"
+        assert result_item["state"] == settings.DYNAMODB_RESULTS_PROCESSED_STATE
         assert result_item["result"] == result_json
         assert "collection_id" in result_item
         assert result_item["collection_id"] == collection_id
