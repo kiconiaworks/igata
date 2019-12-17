@@ -1,22 +1,24 @@
 import json
 import logging
+import time
 from collections.abc import Iterable
 from multiprocessing.pool import ThreadPool
-from typing import Generator, Tuple, Union
+from typing import Dict, Generator, Tuple, Union
 
 import boto3
 import numpy as np
+import pandas
 
 from .... import settings
-from ....utils import parse_s3_uri, prepare_csv, prepare_images
-from . import InputImageCtxManagerBase
+from ....utils import parse_s3_uri, prepare_csv_dataframe, prepare_images, s3_key_exists
+from . import InputCtxManagerBase
 
 logger = logging.getLogger("cliexecutor")
 
 SQS = boto3.resource("sqs", endpoint_url=settings.SQS_ENDPOINT, region_name=settings.AWS_REGION)
 
 
-class SQSRecordS3InputImageCtxManager(InputImageCtxManagerBase):
+class SQSMessageS3InputImageCtxManager(InputCtxManagerBase):
     """get_records() is called by results will use `put_records()` to output to the envar defined SQS Queue"""
 
     def __init__(self, *args, **kwargs):
@@ -133,7 +135,17 @@ class SQSRecordS3InputImageCtxManager(InputImageCtxManagerBase):
                     message.change_visibility(VisibilityTimeout=settings.SQS_VISIBILITYTIMEOUT_SECONDS_ON_EXCEPTION)
 
 
-class SQSRecordS3InputCSVCtxManager(InputImageCtxManagerBase):
+def get_default_pandas_read_csv_kwargs(key: str) -> dict:
+    """Returns the default pandas.read_csv(**kwargs)"""
+    default_pandas_read_csv_kwargs = {
+        "sep": settings.DEFAULT_INPUT_CSV_DELIMITER,
+        "encoding": settings.DEFAULT_INPUT_CSV_ENCODING,
+        "header": settings.DEFAULT_INPUT_CSV_HEADER_LINES,
+    }
+    return default_pandas_read_csv_kwargs
+
+
+class SQSMessageS3InputCSVPandasDataFrameCtxManager(InputCtxManagerBase):
     """get_records() is called by results will use `put_records()` to output to the envar defined SQS Queue"""
 
     def __init__(self, *args, **kwargs):
@@ -144,7 +156,8 @@ class SQSRecordS3InputCSVCtxManager(InputImageCtxManagerBase):
         self.max_processing_requests = kwargs.get("max_processing_requests", settings.MAX_PROCESSING_REQUESTS)
         logger.info(f"max_processing_requests: {self.max_processing_requests}")
         self.processed_messages = []
-        self.context_manager_specific_info_keys = ("bucket", "key", "download_time")
+        self.context_manager_specific_info_keys = ("s3uri_keys", "sqs_queue_url", "max_processing_requests", "request", "is_valid")
+        self.get_pandas_read_csv_kwargs = kwargs.get("get_pandas_read_csv_kwargs", get_default_pandas_read_csv_kwargs)
 
     @classmethod
     def required_kwargs(cls) -> tuple:
@@ -198,9 +211,10 @@ class SQSRecordS3InputCSVCtxManager(InputImageCtxManagerBase):
                 break
         return all_processing_requests
 
-    def get_records(self, *args, **kwargs) -> Generator[Tuple[np.array, dict], None, None]:
+    def get_records(self, *args, **kwargs) -> Generator[Tuple[Dict[str, pandas.DataFrame], dict], None, None]:
         """
         Receive available messages from queue upto MAX_PROCESSING_REQUESTS
+        Downloads fields defined as 's3uri_keys' from s3 to pandas DataFrame(s)
 
         .. note::
 
@@ -214,37 +228,54 @@ class SQSRecordS3InputCSVCtxManager(InputImageCtxManagerBase):
                 logger.warning(f"SQS MessageBody not list!!! Putting object in list: {processing_requests}")
                 processing_requests = [processing_requests]
 
-            args = []
-            requests_mapping = {}
             for request in processing_requests:
+                record = {}
+                info = {
+                    "s3uri_keys": self.s3uri_keys,
+                    "sqs_queue_url": self.sqs_queue_url,
+                    "max_processing_requests": self.max_processing_requests,
+                    "is_valid": True,
+                    "errors": [],
+                }
+                args = []
+                s3uri_key_mapping = {}
                 for s3uri_key in self.s3uri_keys:
-                    request["current_s3uri_key"] = s3uri_key
                     s3uri = request[s3uri_key]
                     bucket, key = parse_s3_uri(s3uri)
+                    read_csv_kwargs = self.get_pandas_read_csv_kwargs(key)
                     logger.info(f"parser_s3_uri() bucket: {bucket}")
                     logger.info(f"parser_s3_uri() key: {key}")
-                    args.append((bucket, key))
-                    requests_mapping[(bucket, key)] = request
+                    logger.info(f"read_csv_kwargs={read_csv_kwargs}")
+                    # s3uri, encoding, delimiter, header_lines
+                    args.append((bucket, key, read_csv_kwargs))
+                    s3uri_key_mapping[(bucket, key)] = s3uri_key
+                    if not s3_key_exists(bucket, key):
+                        info["is_valid"] = False
+                        info["errors"].append(f"s3uri({s3uri}) DoesNotExist: request={request}")
 
-            pool = ThreadPool(settings.DOWNLOAD_WORKERS)
-            for (bucket, key), csvreader, download_time, error_message in pool.starmap(prepare_csv, args):
-                request = requests_mapping[(bucket, key)]
-                info = {}
-                if error_message:
-                    # add error message to request in order to return info to user
-                    if "errors" not in info:
-                        info["errors"] = [error_message]
-                    else:
-                        if not info["errors"]:
-                            info["errors"] = []
+                if info["is_valid"]:
+                    download_start = time.time()
+                    pool = ThreadPool(settings.DOWNLOAD_WORKERS)
 
-                        info["errors"].append(error_message)
-                    logger.error(error_message)
+                    for (bucket, key), df, _, error_message in pool.starmap(prepare_csv_dataframe, args):
+                        original_s3uri_key = s3uri_key_mapping[(bucket, key)]
+                        dataframe_key = f"{original_s3uri_key}__dataframe"
 
-                info = {"bucket": bucket, "key": key, "download_time": download_time}
+                        # add to record
+                        record[dataframe_key] = df
+
+                        if error_message:
+                            # add error message to request in order to return info to user
+                            info["errors"].append(error_message)
+                            logger.error(error_message)
+
+                    download_end = time.time()
+                    download_time = download_end - download_start
+                    info["download_time"] = download_time
+
                 logger.debug(f"Adding request attributes to info: {request}")
-                info.update(request)  # add request info to returned info
-                yield csvreader, info
+                info["request"] = request  # add request info to returned info
+                yield record, info
 
     def __enter__(self):
         return self

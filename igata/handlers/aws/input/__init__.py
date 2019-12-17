@@ -1,10 +1,8 @@
 from abc import abstractmethod
-from typing import Tuple
-
-import numpy as np
+from typing import Any, Tuple
 
 
-class InputImageCtxManagerBase:
+class InputCtxManagerBase:
     """To define input sources subclass this class"""
 
     context_manager_specific_info_keys = []
@@ -19,15 +17,15 @@ class InputImageCtxManagerBase:
             raise TypeError(f"{self.__class__.__name__} Required Fields Missing: {missing}")
 
     @abstractmethod
-    def get_records(self, *args, **kwargs) -> Tuple[np.array, dict]:
+    def get_records(self, *args, **kwargs) -> Tuple[Any, dict]:
         """Define to get records from the desired data source."""
-        record = np.array()
+        record = None
         info = {"download_time": None}  # Should contain download_time
         return record, info
 
     @abstractmethod
     def __enter__(self):
-        pass
+        self
 
     @abstractmethod
     def __exit__(self, exception_type, exception_value, traceback):

@@ -39,11 +39,14 @@ def _create_bucket(bucket):
 
 
 def _delete_bucket(bucket):
-    response = S3.list_objects(Bucket=bucket)
-    if "Contents" in response:
-        for obj in response["Contents"]:
-            S3.delete_object(Bucket=bucket, Key=obj["Key"])
-    S3.delete_bucket(Bucket=bucket)
+    try:
+        response = S3.list_objects(Bucket=bucket)
+        if "Contents" in response:
+            for obj in response["Contents"]:
+                S3.delete_object(Bucket=bucket, Key=obj["Key"])
+        S3.delete_bucket(Bucket=bucket)
+    except Exception:
+        pass
 
 
 def _upload_to_s3(filepath, bucket, key):
@@ -58,6 +61,7 @@ def _delete_from_s3(bucket, key):
 def setup_teardown_s3_file(local_filepath: Path, bucket, key):
     def decorator(function):
         def wrapper(*args, **kwargs):
+            _delete_bucket(bucket)
             _create_bucket(bucket)
             _upload_to_s3(local_filepath, bucket, key)
             result = function(*args, **kwargs)
@@ -96,8 +100,11 @@ def _get_queue_url(queue_name):
 
 
 def _delete_sqs_queue(queue_name):
-    queue_url = _get_queue_url(queue_name)
-    SQS.delete_queue(QueueUrl=queue_url)
+    try:
+        queue_url = _get_queue_url(queue_name)
+        SQS.delete_queue(QueueUrl=queue_url)
+    except Exception:
+        pass
 
 
 def setup_teardown_sqs_queue(queue_name):
