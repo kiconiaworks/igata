@@ -63,7 +63,7 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
             OUTPUT_CTXMGR_CSV_FIELDNAMES
 
         """
-        required_keys = ("output_s3_bucket", "results_keyname")
+        required_keys = ("output_s3_bucket", "results_keyname", "output_s3_prefix")
         return required_keys
 
     def put_records(self, records: List[Union[list, tuple, dict]], encoding: str = "utf8"):
@@ -176,17 +176,11 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
             logger.info("writing results: SUCCESS!")
 
             output_info = {"Bucket": self.output_s3_bucket, "Key": key}
+            # build result key
+            record[self.results_keyname] = [f"s3://{self.output_s3_bucket}/{key}"]
         self._record_results.append(record)
 
         return output_info
-
-    @property
-    def key(self):
-        """Define the output key"""
-        now = datetime.datetime.now()
-        prefix = self.__class__.__name__.lower()
-        key = f"{prefix}/{self.filename_prefix}_{self.unique_hash.hexdigest()}_{now:%Y%m%d_%H%M%S}.csv"
-        return key
 
     def __exit__(self, *args, **kwargs):
         # make sure that any remaining records are put
