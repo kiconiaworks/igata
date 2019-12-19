@@ -57,12 +57,12 @@ def create_sample_dataframe() -> pandas.DataFrame:
 
 
 @setup_teardown_s3_bucket(bucket=TEST_OUTPUT_BUCKETNAME)
-def test_output_handler_s3bucketcsvfileoutputctxmanager__no_tocsvkwargs():
+def test_output_handler_s3bucketpandasdataframecsvfileoutputctxmanager__no_tocsvkwargs():
     job_id = str(uuid4())
     sample_df = create_sample_dataframe()
     record = {"job_id": job_id, "filename": "outputfilename.csv", "gzip": True, "dataframe": sample_df, "is_valid": True}
 
-    output_settings = {"output_s3_bucket": TEST_OUTPUT_BUCKETNAME}
+    output_settings = {"output_s3_bucket": TEST_OUTPUT_BUCKETNAME, "results_keyname": "result", "output_s3_prefix": "prefix/"}
     all_outputs = []
     with S3BucketPandasDataFrameCsvFileOutputCtxManager(**output_settings) as pandascsvoutputmgr:
         outputs = pandascsvoutputmgr.put_record(record)
@@ -76,10 +76,10 @@ def test_output_handler_s3bucketcsvfileoutputctxmanager__no_tocsvkwargs():
         assert len(lines) == 5, lines
 
 
-def test_output_handler_s3bucketcsvfileoutputctxmanager_required_envars():
-    expected_required = ("output_s3_bucket",)
+def test_output_handler_s3bucketpandasdataframecsvfileoutputctxmanager_required_envars():
+    expected_required = ("output_s3_bucket", "output_s3_prefix", "results_keyname")
     assert all(f in S3BucketPandasDataFrameCsvFileOutputCtxManager.required_kwargs() for f in expected_required)
-    mgr = S3BucketPandasDataFrameCsvFileOutputCtxManager(output_s3_bucket="test_bucket1", csv_fieldnames=["a", "b", "c"])
+    mgr = S3BucketPandasDataFrameCsvFileOutputCtxManager(output_s3_bucket="test_bucket1", results_keyname="result", output_s3_prefix="test")
 
     expected_envars = [f"OUTPUT_CTXMGR_{e.upper()}" for e in S3BucketPandasDataFrameCsvFileOutputCtxManager.required_kwargs()]
     for expected_envar in expected_envars:

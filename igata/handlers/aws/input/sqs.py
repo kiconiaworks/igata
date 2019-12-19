@@ -258,8 +258,9 @@ class SQSMessageS3InputCSVPandasDataFrameCtxManager(InputCtxManagerBase):
                     pool = ThreadPool(settings.DOWNLOAD_WORKERS)
 
                     for (bucket, key), df, _, error_message in pool.starmap(prepare_csv_dataframe, args):
-                        original_s3uri_key = s3uri_key_mapping[(bucket, key)]
-                        dataframe_key = f"{original_s3uri_key}__dataframe"
+                        filename = key.split("/")[-1]
+                        logger.debug(f"filename={filename}")
+                        dataframe_key = f"{filename}__dataframe"
 
                         # add to record
                         record[dataframe_key] = df

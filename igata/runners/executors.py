@@ -200,6 +200,7 @@ class PredictionExecutor:
                         except Exception as e:
                             # collect traceback
                             logger.exception(e)
+                            error_message = f"{e.__class__.__name__}: {e.args}"
                             if "errors" not in info:
                                 info["errors"] = [error_message]
                             else:

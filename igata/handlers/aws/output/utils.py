@@ -27,11 +27,14 @@ def update_item(item: dict, tablename: str) -> dict:
     table = DYNAMODB.Table(tablename)
     logger.info(f"Updating item in Table({tablename})...")
     logger.debug(f"item: {item}")
+
+    processed_timestamp_utc = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
     try:
         # Assure that updated `errors` field is not None
         errors_field_value = "[]"
         if "errors" in item and item["errors"] is not None:
             errors_field_value = item["errors"]
+        logger.info(f"errors={errors_field_value}")
         response = table.update_item(
             Key={settings.DYNAMODB_REQUESTS_TABLE_HASHKEY_KEYNAME: item[settings.DYNAMODB_REQUESTS_TABLE_HASHKEY_KEYNAME]},
             UpdateExpression=(
@@ -47,10 +50,10 @@ def update_item(item: dict, tablename: str) -> dict:
             },
             ExpressionAttributeValues={
                 ":predictor_status": item[settings.DYNAMODB_RESULTS_TABLE_STATE_FIELDNAME],
-                f":result_s3_uris": item["result_s3_uris"],
+                ":result_s3_uris": item["result_s3_uris"],
                 ":errors": errors_field_value,
-                ":updated_timestamp": item.get("updated_timestamp", int(datetime.datetime.now(datetime.timezone.utc).timestamp())),
-                ":completed_timestamp": item.get("completed_timestamp", int(datetime.datetime.now(datetime.timezone.utc).timestamp())),
+                ":updated_timestamp": item.get("updated_timestamp", processed_timestamp_utc),
+                ":completed_timestamp": item.get("completed_timestamp", processed_timestamp_utc),
             },
         )
     except Exception as e:

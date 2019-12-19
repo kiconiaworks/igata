@@ -47,6 +47,7 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
             self.get_additional_dynamodb_request_update_attributes = kwargs["get_additional_dynamodb_request_update_attributes"]
 
         self.results_keyname = kwargs.get("results_keyname", "result_s3_uris")
+        self.hash_keyname = kwargs.get("hash_keyname", settings.DYNAMODB_REQUESTS_TABLE_HASHKEY_KEYNAME)
 
         self.executor = ThreadPoolExecutor()
         self.futures = []
@@ -62,7 +63,7 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
             OUTPUT_CTXMGR_CSV_FIELDNAMES
 
         """
-        required_keys = ("output_s3_bucket",)
+        required_keys = ("output_s3_bucket", "results_keyname", "output_s3_prefix")
         return required_keys
 
     def put_records(self, records: List[Union[list, tuple, dict]], encoding: str = "utf8"):
@@ -77,13 +78,18 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
         DYNAMODB_RESULTS_ERROR_STATE = settings.DYNAMODB_RESULTS_ERROR_STATE
 
         logger.debug(f"DYNAMODB_RESULTS_PROCESSED_STATE: {DYNAMODB_RESULTS_PROCESSED_STATE}")
-
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
         for record in records:
             # update record with state, so it is included in the resulting nested_keys
             state = DYNAMODB_RESULTS_PROCESSED_STATE
             if "errors" in record and record["errors"]:
                 state = DYNAMODB_RESULTS_ERROR_STATE
             record["predictor_status"] = state
+            record["completed_timestamp"] = now_utc.timestamp()
+            record["updated_timestamp"] = now_utc.timestamp()
+            if self.hash_keyname not in record:
+                record[self.hash_keyname] = record["request"][self.hash_keyname]
+
             prepared_record, original_record_nested_data = prepare_record(record)
 
             if self.results_keyname not in prepared_record:
@@ -144,7 +150,9 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
             }
         """
         output_info = {}
-        if record["is_valid"]:
+        logger.info(f'record["is_valid"]={record["is_valid"]}')
+        has_errors = True if "errors" in record and record["errors"] else False
+        if not has_errors and record["is_valid"]:
             job_id = record["job_id"]
             filename = record.get("filename", None)
             if not filename:
@@ -167,17 +175,13 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
             encoded_buffer.seek(0)
             S3.upload_fileobj(Fileobj=encoded_buffer, Bucket=self.output_s3_bucket, Key=key)
             logger.info("writing results: SUCCESS!")
-            self._record_results.append(record)
-            output_info = {"Bucket": self.output_s3_bucket, "Key": key}
-        return output_info
 
-    @property
-    def key(self):
-        """Define the output key"""
-        now = datetime.datetime.now()
-        prefix = self.__class__.__name__.lower()
-        key = f"{prefix}/{self.filename_prefix}_{self.unique_hash.hexdigest()}_{now:%Y%m%d_%H%M%S}.csv"
-        return key
+            output_info = {"Bucket": self.output_s3_bucket, "Key": key}
+            # build result key
+            record[self.results_keyname] = [f"s3://{self.output_s3_bucket}/{key}"]
+        self._record_results.append(record)
+
+        return output_info
 
     def __exit__(self, *args, **kwargs):
         # make sure that any remaining records are put
