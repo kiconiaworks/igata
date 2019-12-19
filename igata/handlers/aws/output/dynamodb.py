@@ -35,7 +35,13 @@ def get_nested_keys(record: dict) -> Generator[str, None, None]:
             yield k
 
 
-def update_item(item: dict, tablename: str) -> dict:
+def update_item(
+    item: dict,
+    tablename: str,
+    requests_hashkey: str = settings.DYNAMODB_REQUESTS_TABLE_HASHKEY_KEYNAME,
+    requests_results_key: str = settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME,
+    results_state_key: str = settings.DYNAMODB_RESULTS_TABLE_STATE_FIELDNAME,
+) -> dict:
     """
     Update the given item entry in the Dynamodb REQUESTS table
 
@@ -47,12 +53,10 @@ def update_item(item: dict, tablename: str) -> dict:
     table = DYNAMODB.Table(tablename)
     logger.info(f"Updating item in Table({tablename})...")
     logger.debug(f"item: {item}")
+    utc_timestamp = datetime.datetime.now(datetime.timezone.utc).timestamp()
     # update None to empty list for results
     if item[settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME] is None:
-        msg = (
-            f"item[REQUESTS_TABLE_RESULTS_KEYNAME] is None, "
-            f'setting REQUESTS_TABLE_RESULTS_KEYNAME({item[settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME]}) to "[]"'
-        )
+        msg = f"item[REQUESTS_TABLE_RESULTS_KEYNAME] is None, " f'setting REQUESTS_TABLE_RESULTS_KEYNAME({item[requests_results_key]}) to "[]"'
         logger.warning(msg)
         item[settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME] = "[]"  # to resolve issue with read from Pynamodb
 
@@ -62,23 +66,16 @@ def update_item(item: dict, tablename: str) -> dict:
         if "errors" in item and item["errors"] is not None:
             errors_field_value = item["errors"]
         response = table.update_item(
-            Key={settings.DYNAMODB_REQUESTS_TABLE_HASHKEY_KEYNAME: item[settings.DYNAMODB_REQUESTS_TABLE_HASHKEY_KEYNAME]},
+            Key={requests_hashkey: item[requests_hashkey]},
             UpdateExpression=(
                 "SET " "#s = :state, " "#r = :result, " "#e = :errors, " "#u = :updated_at_timestamp"  # should be REQUESTS_TABLE_RESULTS_KEYNAME
             ),
-            ExpressionAttributeNames={
-                "#s": settings.DYNAMODB_RESULTS_TABLE_STATE_FIELDNAME,
-                "#r": settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME,
-                "#e": "errors",
-                "#u": "updated_at_timestamp",
-            },
+            ExpressionAttributeNames={"#s": results_state_key, "#r": requests_results_key, "#e": "errors", "#u": "updated_at_timestamp"},
             ExpressionAttributeValues={
-                ":state": item[settings.DYNAMODB_RESULTS_TABLE_STATE_FIELDNAME],
-                f":{settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME}": item[settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME],
+                ":state": item[results_state_key],
+                f":{requests_results_key}": item[requests_results_key],
                 ":errors": errors_field_value,
-                ":updated_at_timestamp": item.get(
-                    "updated_at_timestamp", int(datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).timestamp())
-                ),
+                ":updated_at_timestamp": item.get("updated_at_timestamp", int(utc_timestamp)),
             },
         )
     except Exception as e:
@@ -130,6 +127,8 @@ class DynamodbOutputCtxManager(OutputCtxManagerBase):
                 f'results_keyname({kwargs["results_keyname"]}) given, '
                 f"but not supported, RESULTS_KEYNAME *MUST* be: {settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME}"
             )
+        self.requests_hashkey = kwargs.get("requests_hashkey", "request_id")
+        self.requests_statekey = kwargs.get("requests_statekey", "state")
         self.results_keyname = settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME
         self.executor = ThreadPoolExecutor()
         self.futures = []
@@ -163,20 +162,17 @@ class DynamodbOutputCtxManager(OutputCtxManagerBase):
         DYNAMODB_RESULTS_PROCESSED_STATE = settings.DYNAMODB_RESULTS_PROCESSED_STATE
         DYNAMODB_RESULTS_ERROR_STATE = settings.DYNAMODB_RESULTS_ERROR_STATE
 
-        DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME = settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME
         DYNAMODB_RESULTS_SORTKEY_KEYNAME = settings.DYNAMODB_RESULTS_SORTKEY_KEYNAME
 
-        DYNAMODB_RESULTS_TABLE_STATE_FIELDNAME = settings.DYNAMODB_RESULTS_TABLE_STATE_FIELDNAME
-
         logger.debug(f"DYNAMODB_RESULTS_PROCESSED_STATE: {DYNAMODB_RESULTS_PROCESSED_STATE}")
-        logger.debug(f"DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME: {DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME}")
+        logger.debug(f"DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME: {self.results_keyname}")
         with detailed_results_table.batch_writer() as detailed_writer:
             for record in records:
                 # update record with state, so it is included in the resulting nested_keys
                 state = DYNAMODB_RESULTS_PROCESSED_STATE
                 if "errors" in record and record["errors"]:
                     state = DYNAMODB_RESULTS_ERROR_STATE
-                record[DYNAMODB_RESULTS_TABLE_STATE_FIELDNAME] = state
+                record[self.requests_statekey] = state
                 prepared_record, original_record_nested_data = prepare_record(record)
 
                 if self.results_keyname not in prepared_record:
@@ -184,7 +180,9 @@ class DynamodbOutputCtxManager(OutputCtxManagerBase):
                     prepared_record[self.results_keyname] = "[]"
                 logger.debug(f"update_item (prepared_record): {prepared_record}")
 
-                future = self.executor.submit(update_item, prepared_record, self.requests_tablename)
+                future = self.executor.submit(
+                    update_item, prepared_record, self.requests_tablename, self.requests_hashkey, self.results_keyname, self.requests_statekey
+                )
                 self.futures.append(future)
                 request_update_items += 1
 

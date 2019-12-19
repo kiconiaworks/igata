@@ -77,9 +77,9 @@ def test_output_handler_s3bucketpandasdataframecsvfileoutputctxmanager__no_tocsv
 
 
 def test_output_handler_s3bucketpandasdataframecsvfileoutputctxmanager_required_envars():
-    expected_required = ("output_s3_bucket",)
+    expected_required = ("output_s3_bucket", "output_s3_prefix", "results_keyname")
     assert all(f in S3BucketPandasDataFrameCsvFileOutputCtxManager.required_kwargs() for f in expected_required)
-    mgr = S3BucketPandasDataFrameCsvFileOutputCtxManager(output_s3_bucket="test_bucket1", results_keyname="result")
+    mgr = S3BucketPandasDataFrameCsvFileOutputCtxManager(output_s3_bucket="test_bucket1", results_keyname="result", output_s3_prefix="test")
 
     expected_envars = [f"OUTPUT_CTXMGR_{e.upper()}" for e in S3BucketPandasDataFrameCsvFileOutputCtxManager.required_kwargs()]
     for expected_envar in expected_envars:

@@ -151,7 +151,8 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
         """
         output_info = {}
         logger.info(f'record["is_valid"]={record["is_valid"]}')
-        if not record["errors"] and record["is_valid"]:
+        has_errors = True if "errors" in record and record["errors"] else False
+        if not has_errors and record["is_valid"]:
             job_id = record["job_id"]
             filename = record.get("filename", None)
             if not filename:
