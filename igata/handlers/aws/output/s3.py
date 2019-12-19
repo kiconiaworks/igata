@@ -47,6 +47,7 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
             self.get_additional_dynamodb_request_update_attributes = kwargs["get_additional_dynamodb_request_update_attributes"]
 
         self.results_keyname = kwargs.get("results_keyname", "result_s3_uris")
+        self.hash_keyname = kwargs.get("hash_keyname", settings.DYNAMODB_REQUESTS_TABLE_HASHKEY_KEYNAME)
 
         self.executor = ThreadPoolExecutor()
         self.futures = []
@@ -62,7 +63,7 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
             OUTPUT_CTXMGR_CSV_FIELDNAMES
 
         """
-        required_keys = ("output_s3_bucket",)
+        required_keys = ("output_s3_bucket", "results_keyname")
         return required_keys
 
     def put_records(self, records: List[Union[list, tuple, dict]], encoding: str = "utf8"):
@@ -144,6 +145,7 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
             }
         """
         output_info = {}
+        logger.info(f'record["is_valid"]={record["is_valid"]}')
         if record["is_valid"]:
             job_id = record["job_id"]
             filename = record.get("filename", None)
@@ -167,8 +169,10 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
             encoded_buffer.seek(0)
             S3.upload_fileobj(Fileobj=encoded_buffer, Bucket=self.output_s3_bucket, Key=key)
             logger.info("writing results: SUCCESS!")
-            self._record_results.append(record)
+
             output_info = {"Bucket": self.output_s3_bucket, "Key": key}
+        self._record_results.append(record)
+
         return output_info
 
     @property
