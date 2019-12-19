@@ -4,7 +4,7 @@ import os
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import List, Type
+from typing import List, Optional, Type
 
 import rx
 import rx.operators as ops
@@ -25,6 +25,7 @@ from .handlers import (
 )
 from .handlers.aws.input import InputCtxManagerBase
 from .handlers.aws.output import OutputCtxManagerBase
+from .handlers.aws.output.mixins import PostPredictHookMixInBase
 from .predictors import PredictorBase
 from .runners.executors import PredictionExecutor
 
@@ -47,7 +48,15 @@ logging.getLogger("pynamodb.connection.base").setLevel(logging.WARNING)
 logger = logging.getLogger("cliexecutor")
 
 
-def execute_prediction(predictor, input_ctx_manager, input_settings, output_ctx_manager, output_settings, inputs: List[str] = None) -> Counter:
+def execute_prediction(
+    predictor,
+    input_ctx_manager,
+    input_settings,
+    output_ctx_manager,
+    output_settings,
+    inputs: List[str] = None,
+    output_ctxmgr_mixins: Optional[List[Type[PostPredictHookMixInBase]]] = None,
+) -> Counter:
     """Run prediction using the user-defined predictor object and defined input/output context managers."""
     executor = PredictionExecutor(
         predictor=predictor,
@@ -55,6 +64,7 @@ def execute_prediction(predictor, input_ctx_manager, input_settings, output_ctx_
         input_settings=input_settings,
         output_ctx_manager=output_ctx_manager,
         output_settings=output_settings,
+        output_ctxmgr_mixins=output_ctxmgr_mixins,
     )
     summary = executor.execute(inputs)  # results are handled by method defined in selected output_ctx_manager
     return summary
