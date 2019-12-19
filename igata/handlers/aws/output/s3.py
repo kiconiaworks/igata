@@ -78,13 +78,18 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
         DYNAMODB_RESULTS_ERROR_STATE = settings.DYNAMODB_RESULTS_ERROR_STATE
 
         logger.debug(f"DYNAMODB_RESULTS_PROCESSED_STATE: {DYNAMODB_RESULTS_PROCESSED_STATE}")
-
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
         for record in records:
             # update record with state, so it is included in the resulting nested_keys
             state = DYNAMODB_RESULTS_PROCESSED_STATE
             if "errors" in record and record["errors"]:
                 state = DYNAMODB_RESULTS_ERROR_STATE
             record["predictor_status"] = state
+            record["completed_timestamp"] = now_utc.timestamp()
+            record["updated_timestamp"] = now_utc.timestamp()
+            if self.hash_keyname not in record:
+                record[self.hash_keyname] = record["request"][self.hash_keyname]
+
             prepared_record, original_record_nested_data = prepare_record(record)
 
             if self.results_keyname not in prepared_record:
