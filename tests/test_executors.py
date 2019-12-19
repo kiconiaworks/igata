@@ -572,7 +572,7 @@ def make_company_columns() -> Tuple[List[str], Dict[str, str]]:
 #
 #     def test_surveyrecordpredictor__students_csv_read(self):
 #         predictor = DummyInPandasDataFrameOutPandasCSVPredictor()
-#         csv_read_kwargs = predictor.get_read_csv_kwargs("students_1_1_20190809182030.csv.gz")
+#         csv_read_kwargs = predictor.get_pandas_read_csv_kwargs("students_1_1_20190809182030.csv.gz")
 #
 #         expected_kwargs = {"header": None, "sep": ",", "encoding": "utf8", "names": self.students_colnames, "dtype": self.students_dtypes}
 #         self.assertDictEqual(csv_read_kwargs, expected_kwargs)
