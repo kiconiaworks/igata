@@ -85,6 +85,8 @@ MAX_PER_REQUEST_PROCESSING_SECONDS = int(os.getenv("MAX_PER_REQUEST_PROCESSING_S
 logger.info(f"MAX_PER_REQUEST_PROCESSING_SECONDS: {MAX_PER_REQUEST_PROCESSING_SECONDS}")
 
 # dynamodb settings
+DYNAMODB_REQUESTS_TABLENAME = os.getenv("DYNAMODB_REQUESTS_TABLENAME", "test_requests_table")
+
 DYNAMODB_RESULTS_ADDITIONAL_PARENT_FIELDS = os.getenv(
     "RESULTS_ADDITIONAL_PARENT_FIELDS", "request_id,s3_uri"
 )  # comma separated field to include from parent
