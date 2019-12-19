@@ -6,17 +6,15 @@ import signal
 import time
 from collections import Counter, defaultdict
 from types import FunctionType
-from typing import List, Optional, Tuple, Type, Union
+from typing import Tuple, Type, Union
 
 import boto3
 from botocore.exceptions import ClientError
 
 from .. import settings
 from ..exceptions import PredictTimeoutError
-from ..handlers import OUTPUT_CONTEXT_MANAGER_MIXINS
 from ..handlers.aws.input import InputCtxManagerBase
 from ..handlers.aws.output import OutputCtxManagerBase
-from ..handlers.aws.output.mixins import PostPredictHookMixInBase
 from ..predictors import PredictorBase
 from ..utils import serialize_json_and_chunk_by_bytes
 
@@ -42,16 +40,6 @@ OPTIONAL_PREDICTOR_INPUTCTXMGR_STATICMETHODS = ("get_pandas_read_csv_kwargs",)
 OPTIONAL_PREDICTOR_OUTPUTCTXMGR_STATICMETHODS = ("get_pandas_to_csv_kwargs", "get_additional_dynamodb_request_update_attributes")
 
 
-def get_output_ctxmgr_mixins() -> List[Optional[Type[PostPredictHookMixInBase]]]:
-    """Check settings.OUTPUT_CTXMGR_MIXINS and get related class objects for given class names"""
-    mixins = []
-    if settings.OUTPUT_CTXMGR_MIXINS:
-        for mixin_class_name in settings.OUTPUT_CTXMGR_MIXINS:
-            mixin = OUTPUT_CONTEXT_MANAGER_MIXINS[mixin_class_name]
-            mixins.append(mixin)
-    return mixins
-
-
 class PredictionExecutor:
     """Main executor for running user-defined Predictors (Predictor classes that sub-class igata.predictors.PredictorBase)"""
 
@@ -62,23 +50,12 @@ class PredictionExecutor:
         input_settings: dict,
         output_ctx_manager: Type[OutputCtxManagerBase],
         output_settings: dict,
-        output_ctxmgr_mixins: Optional[List[Type[PostPredictHookMixInBase]]] = None,
     ):
         self.predictor = predictor
         self.input_ctx_manager = input_ctx_manager
         self._input_settings = input_settings
         self.output_ctx_manager = output_ctx_manager
         self._output_settings = output_settings
-
-        if not output_ctxmgr_mixins:
-            # if not passed check envars
-            output_ctxmgr_mixins = get_output_ctxmgr_mixins()
-        if output_ctxmgr_mixins:
-            logger.info(f"Adding OUTPUT_CTXMGR_MIXINS({settings.OUTPUT_CTXMGR_MIXINS})...")
-            updated_bases = list(self.output_ctx_manager.__bases__)
-            for output_ctxmgr_mixin in output_ctxmgr_mixins:
-                updated_bases.append(output_ctxmgr_mixin)
-            self.output_ctx_manager.__bases__ = tuple(updated_bases)
 
         # Log predictor version
         predictor_version = "not defined"
@@ -253,8 +230,9 @@ class PredictionExecutor:
                     signal.alarm(0)
 
                 put_start = time.time()
+                logger.debug("calling output_ctxmgr.put_record(record_results)...")
                 response = output_ctxmgr.put_record(record_results)
-                logger.debug(f"response: {response}")
+                logger.debug(f"output_ctxmgr.put_record(): response={response}")
                 put_end = time.time()
                 put_duration = round(put_end - put_start, 4)
                 logger.info(f"put_duration: {put_duration}")

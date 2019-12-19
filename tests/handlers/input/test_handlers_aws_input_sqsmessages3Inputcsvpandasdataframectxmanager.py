@@ -53,15 +53,11 @@ def test_input_handler_sqsmessages3inputcsvpandasdataframectxmanager():
     _delete_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
     queue_url = _create_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
     for i in range(10):
-        records = []
-        # add 2 requests and send
-        for message_request_count in range(2):
-            request["request_id"] = request["request_id"].format(request_id=i)
-            records.append(request)
-        assert len(records) == 2
+        # update request_id
+        request["request_id"] = request["request_id"].format(request_id=i)
 
         # add dummy records to input queue
-        sqs_queue_send_message(queue_name=TEST_INPUT_SQS_QUEUENAME, message_body=records)
+        sqs_queue_send_message(queue_name=TEST_INPUT_SQS_QUEUENAME, message_body=request)
 
     input_settings = {"sqs_queue_url": queue_url, "max_processing_requests": 2, "s3uri_keys": ["s3_uri_key1"]}
 
@@ -97,15 +93,12 @@ def test_input_handler_sqsmessages3inputcsvpandasdataframectxmanager_multiple_s3
     _delete_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
     queue_url = _create_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
     for i in range(10):
-        records = []
-        # add 2 requests and send
-        for message_request_count in range(2):
-            request["request_id"] = request["request_id"].format(request_id=i)
-            records.append(request)
-        assert len(records) == 2
+
+        # update request_id
+        request["request_id"] = request["request_id"].format(request_id=i)
 
         # add dummy records to input queue
-        sqs_queue_send_message(queue_name=TEST_INPUT_SQS_QUEUENAME, message_body=records)
+        sqs_queue_send_message(queue_name=TEST_INPUT_SQS_QUEUENAME, message_body=request)
 
     input_settings = {"sqs_queue_url": queue_url, "max_processing_requests": 2, "s3uri_keys": ["s3_uri_key1", "s3_uri_key2"]}
 

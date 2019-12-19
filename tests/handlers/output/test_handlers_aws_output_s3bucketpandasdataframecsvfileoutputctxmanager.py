@@ -60,13 +60,13 @@ def create_sample_dataframe() -> pandas.DataFrame:
 def test_output_handler_s3bucketcsvfileoutputctxmanager__no_tocsvkwargs():
     job_id = str(uuid4())
     sample_df = create_sample_dataframe()
-    record = [{"job_id": job_id, "filename": "outputfilename.csv", "gzip": True, "dataframe": sample_df}]
+    record = {"job_id": job_id, "filename": "outputfilename.csv", "gzip": True, "dataframe": sample_df, "is_valid": True}
 
     output_settings = {"output_s3_bucket": TEST_OUTPUT_BUCKETNAME}
     all_outputs = []
     with S3BucketPandasDataFrameCsvFileOutputCtxManager(**output_settings) as pandascsvoutputmgr:
         outputs = pandascsvoutputmgr.put_record(record)
-        all_outputs.extend(outputs)
+        all_outputs.append(outputs)
 
     for output_info in all_outputs:
         # check that file(s) in bucket

@@ -45,9 +45,15 @@ class OutputCtxManagerBase:
         return put_records_count
 
     def __enter__(self):
-        self
+        if hasattr(self, "mixin_setup"):
+            logger.debug("calling self.mixin_setup()...")
+            self.mixin_setup()
+        return self
 
-    def __exit__(self):
+    def __exit__(self, *args, **kwargs) -> None:
+        if hasattr(self, "mixin_exit"):
+            logger.debug("calling self.mixin_exit()...")
+            self.mixin_exit(*args, **kwargs)
         pass
 
     @classmethod

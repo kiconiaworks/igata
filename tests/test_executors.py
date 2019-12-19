@@ -4,10 +4,7 @@ import sys
 from pathlib import Path
 from time import sleep
 from typing import Dict, List, Tuple
-from unittest import TestCase
 
-import pandas
-from dummypredictor.mixins import DummyMixin
 from dummypredictor.predictors import (
     DummyInPandasDataFrameOutPandasCSVPredictor,
     DummyPredictorNoInputNoOutput,
@@ -22,7 +19,6 @@ from igata.handlers.aws.input.s3 import S3BucketImageInputCtxManager
 from igata.handlers.aws.input.sqs import SQSMessageS3InputImageCtxManager
 from igata.handlers.aws.output import OutputCtxManagerBase
 from igata.handlers.aws.output.dynamodb import DynamodbOutputCtxManager
-from igata.handlers.aws.output.mixins.dyanamodb import DynamodbRequestUpdateMixIn
 from igata.handlers.aws.output.sqs import SQSRecordOutputCtxManager
 from igata.runners.executors import PredictionExecutor
 
@@ -437,13 +433,7 @@ def test_executor_predictor_with_outputctxmgrmixin():
         input_settings={},
         output_ctx_manager=SleepExitOutputCtxManager,
         output_settings=output_settings,
-        output_ctxmgr_mixins=[DummyMixin],
     )
-
-    assert DummyMixin in executor.output_ctx_manager.__bases__
-    with executor.get_output_ctx_manager_instance() as output_ctxmgr:
-        assert hasattr(output_ctxmgr, "mixin_method")
-        assert output_ctxmgr.mixin_method()
 
 
 class DummyInputCtxManagerWithOptionalStaticMethods(InputCtxManagerBase):

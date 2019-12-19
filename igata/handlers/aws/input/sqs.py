@@ -169,13 +169,13 @@ class SQSMessageS3InputCSVPandasDataFrameCtxManager(InputCtxManagerBase):
             INPUT_CTXMGR_SQS_QUEUE_URL
             INPUT_CTXMGR_S3URI_KEY
         """
-        required = ("sqs_queue_url",)
+        required = ("sqs_queue_url", "s3uri_keys")
         return required
 
     def _get_processing_requests(self) -> Union[list, dict]:
         """Collect processing requests from SQS Queue"""
         queue = SQS.Queue(url=self.sqs_queue_url)
-        all_processing_requests: Union[list, dict] = []  # SQS messages (should be a *list*, may be given an single dict)
+        processing_requests: Union[list, dict] = []  # SQS messages (should be a *list*, may be given an single dict)
 
         estimated_visibility_timeout = self.max_processing_requests * settings.MAX_PER_REQUEST_PROCESSING_SECONDS
         logger.info(f"estimated_visibility_timeout: {estimated_visibility_timeout}")
@@ -189,14 +189,14 @@ class SQSMessageS3InputCSVPandasDataFrameCtxManager(InputCtxManagerBase):
                 logger.debug(f"Number of messages retrieved: {len(messages)}")
                 for message in messages:
                     try:
-                        processing_requests = json.loads(message.body)
-                        logger.info(f"--> Adding Requests: {len(processing_requests)}")
-                        all_processing_requests.extend(processing_requests)
+                        processing_request = json.loads(message.body)
+                        logger.info(f"--> Adding Request: {processing_request}")
+                        processing_requests.append(processing_request)
                         self.processed_messages.append(message)  # for deleting on success
                     except json.decoder.JSONDecodeError:
                         logger.error(f"JSONDecodeError (message will be deleted and not processed!!!) message.body: {message.body}")
                         message.delete()
-                    if len(all_processing_requests) >= self.max_processing_requests:
+                    if len(processing_requests) >= self.max_processing_requests:
                         max_processing_requests_exceeded = True
                         break
             else:
@@ -205,11 +205,11 @@ class SQSMessageS3InputCSVPandasDataFrameCtxManager(InputCtxManagerBase):
                 break
             if max_processing_requests_exceeded:
                 logger.info(
-                    f"len(all_processing_requests)[{len(all_processing_requests)}] > "
+                    f"len(processing_requests)[{len(processing_requests)}] > "
                     f"self.max_processing_requests[{self.max_processing_requests}], breaking..."
                 )
                 break
-        return all_processing_requests
+        return processing_requests
 
     def get_records(self, *args, **kwargs) -> Generator[Tuple[Dict[str, pandas.DataFrame], dict], None, None]:
         """

@@ -1,13 +1,16 @@
 import datetime
 import logging
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO, StringIO
-from typing import List, Optional, Union
+from typing import List, Union
 
 import boto3
 
 from .... import settings
 from . import OutputCtxManagerBase
+from .utils import prepare_record, update_item
 
 logger = logging.getLogger("cliexecutor")
 S3 = boto3.client("s3", endpoint_url=settings.S3_ENDPOINT)
@@ -34,6 +37,20 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
             logger.info('overwritting "self.get_pandas_to_csv_kwargs" with provided staticmethod')
             self.get_pandas_to_csv_kwargs = kwargs["get_pandas_to_csv_kwargs"]
 
+        self.requests_tablename = kwargs.get("requests_tablename", None)
+        if not self.requests_tablename:
+            logger.debug(f'setting "requests_tablename" to: {settings.DYNAMODB_REQUESTS_TABLENAME}')
+            self.requests_tablename = settings.DYNAMODB_REQUESTS_TABLENAME
+
+        if "get_additional_dynamodb_request_update_attributes" in kwargs and kwargs["get_additional_dynamodb_request_update_attributes"]:
+            logger.info('updating with "get_additional_dynamodb_request_update_attributes" with optional staticmethod...')
+            self.get_additional_dynamodb_request_update_attributes = kwargs["get_additional_dynamodb_request_update_attributes"]
+
+        self.results_keyname = kwargs.get("results_keyname", "result_s3_uris")
+
+        self.executor = ThreadPoolExecutor()
+        self.futures = []
+
     @classmethod
     def required_kwargs(cls):
         """
@@ -50,7 +67,42 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
 
     def put_records(self, records: List[Union[list, tuple, dict]], encoding: str = "utf8"):
         """Required implementation method."""
-        pass
+        start = time.time()
+        request_update_items = 0
+        detailed_results_put_items = 0
+        total_results = 0
+
+        # create local references for minor speedup
+        DYNAMODB_RESULTS_PROCESSED_STATE = settings.DYNAMODB_RESULTS_PROCESSED_STATE
+        DYNAMODB_RESULTS_ERROR_STATE = settings.DYNAMODB_RESULTS_ERROR_STATE
+
+        logger.debug(f"DYNAMODB_RESULTS_PROCESSED_STATE: {DYNAMODB_RESULTS_PROCESSED_STATE}")
+
+        for record in records:
+            # update record with state, so it is included in the resulting nested_keys
+            state = DYNAMODB_RESULTS_PROCESSED_STATE
+            if "errors" in record and record["errors"]:
+                state = DYNAMODB_RESULTS_ERROR_STATE
+            record["predictor_status"] = state
+            prepared_record, original_record_nested_data = prepare_record(record)
+
+            if self.results_keyname not in prepared_record:
+                logger.warning(f'Expected Key("{self.results_keyname}") not in {prepared_record}, setting "{self.results_keyname}" to "[]"')
+                prepared_record[self.results_keyname] = "[]"
+            logger.debug(f"update_item (prepared_record): {prepared_record}")
+
+            future = self.executor.submit(update_item, prepared_record, self.requests_tablename)
+            self.futures.append(future)
+            request_update_items += 1
+
+        end = time.time()
+        summary = {
+            "request_update_items": request_update_items,
+            "detailed_results_put_items": detailed_results_put_items,
+            "total_results": total_results,
+            "elapsed": end - start,
+        }
+        return summary
 
     @staticmethod
     def get_pandas_to_csv_kwargs(result: dict) -> dict:
@@ -81,22 +133,20 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
         }
         return kwargs
 
-    def put_record(self, record: List[dict], *args, **kwargs) -> List[Optional[dict]]:
+    def put_record(self, record: dict, *args, **kwargs) -> dict:
         """
         Result Record:
-            [
-                {
-                    "job_id": {JOB_ID|REQUEST_ID},
-                    "filename": {OUTPUT_FILENAME},
-                    "gzip": True,
-                    "dataframe": {result dataframe},
-                }
-            ]
+            {
+                "job_id": {JOB_ID|REQUEST_ID},
+                "filename": {OUTPUT_FILENAME},
+                "gzip": True,
+                "dataframe": {record dataframe},
+            }
         """
-        outputs_info = []
-        for result in record:
-            job_id = result["job_id"]
-            filename = result.get("filename", None)
+        output_info = {}
+        if record["is_valid"]:
+            job_id = record["job_id"]
+            filename = record.get("filename", None)
             if not filename:
                 filename = f"{job_id}.csv"
 
@@ -104,8 +154,8 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
             logger.info(f"preparing ({filename})...")
 
             df_csv_buffer = StringIO()
-            df = result["dataframe"]
-            kwargs = self.get_pandas_to_csv_kwargs(result)
+            df = record["dataframe"]
+            kwargs = self.get_pandas_to_csv_kwargs(record)
 
             logger.debug(f"csv output kwargs: {kwargs}")
             df.to_csv(df_csv_buffer, **kwargs)
@@ -117,10 +167,9 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
             encoded_buffer.seek(0)
             S3.upload_fileobj(Fileobj=encoded_buffer, Bucket=self.output_s3_bucket, Key=key)
             logger.info("writing results: SUCCESS!")
+            self._record_results.append(record)
             output_info = {"Bucket": self.output_s3_bucket, "Key": key}
-
-            outputs_info.append(output_info)
-        return outputs_info
+        return output_info
 
     @property
     def key(self):
@@ -130,8 +179,22 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
         key = f"{prefix}/{self.filename_prefix}_{self.unique_hash.hexdigest()}_{now:%Y%m%d_%H%M%S}.csv"
         return key
 
-    def __enter__(self):
-        return self
-
     def __exit__(self, *args, **kwargs):
-        pass
+        # make sure that any remaining records are put
+        # --> records added byt the `` defined in OutputCtxManagerBase where self._record_results is populated
+        if self._record_results:
+            logger.debug(f"put_records(): {len(self._record_results)}")
+            self.put_records(self._record_results)
+
+        for f in self.futures:
+            response = f.result(timeout=None)
+            logger.debug(f"future response: {response}")
+            if response and "ResponseMetadata" in response and "HTTPStatusCode" in response["ResponseMetadata"]:
+                status_code = response["ResponseMetadata"]["HTTPStatusCode"]
+                if status_code != 200:
+                    logger.error(f"(update_item) future response: [{status_code}] {response}")
+                else:
+                    logger.info(f"(update_item) future response: [{status_code}]")
+            else:
+                logger.warning(f"future UNKNOWN response: {response}")
+        self.executor.shutdown()
