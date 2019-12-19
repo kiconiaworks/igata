@@ -80,7 +80,7 @@ def collect_ctxmgr_settings(input_ctx_manager: Type[InputCtxManagerBase], output
     """Collect context manager settings from environment variables"""
     assert input_ctx_manager
     assert output_ctx_manager
-    settings = {"input_settings": {}, "output_settings": {}}
+    ctxmgr_settings = {"input_settings": {}, "output_settings": {}}
     logger.debug(f"INPUT_CONTEXT_MANAGER_REQUIRED_ENVARS: {INPUT_CONTEXT_MANAGER_REQUIRED_ENVARS}")
     logger.debug(f"OUTPUT_CONTEXT_MANAGER_REQUIRED_ENVARS: {OUTPUT_CONTEXT_MANAGER_REQUIRED_ENVARS}")
     input_ctx_manager_key = input_ctx_manager.__name__
@@ -97,7 +97,7 @@ def collect_ctxmgr_settings(input_ctx_manager: Type[InputCtxManagerBase], output
             # remove prefix and lowercase
             # INPUT_CTXMGR_REQUIRED_ARGUMENT -> required_argument
             argument_name = expected_envar.replace(INPUT_CTXMGR_ENVAR_PREFIX, "").lower()
-            settings["input_settings"][argument_name] = envar_value.strip()
+            ctxmgr_settings["input_settings"][argument_name] = envar_value.strip()
 
     for expected_envar in OUTPUT_CONTEXT_MANAGER_REQUIRED_ENVARS[output_ctx_manager_key]:
         envar_value = os.getenv(expected_envar, None)
@@ -108,13 +108,13 @@ def collect_ctxmgr_settings(input_ctx_manager: Type[InputCtxManagerBase], output
             # remove prefix and lowercase
             # OUTPUT_CTXMGR_REQUIRED_ARGUMENT -> required_argument
             argument_name = expected_envar.replace(OUTPUT_CTXMGR_ENVAR_PREFIX, "").lower()
-            settings["output_settings"][argument_name] = envar_value.strip()
+            ctxmgr_settings["output_settings"][argument_name] = envar_value.strip()
 
     if missing_envars:
         for missing_envar in missing_envars:
             logger.error(f"Required EnvironmentVariable not set: {missing_envar}")
         raise ValueError(f"Required EnvironmentVariable(s) not set: {missing_envars}")
-    return settings
+    return ctxmgr_settings
 
 
 def input_contenxt_manager(value) -> Type[InputCtxManagerBase]:
@@ -203,9 +203,9 @@ if __name__ == "__main__":
 
     external_predictor_class = find_predictor_class(args.module_name, args.predictor_class_name)
     external_predictor = external_predictor_class()
-    settings = collect_ctxmgr_settings(args.input_ctx_manager, args.output_ctx_manager)
-    for setting in settings:
-        logger.info(f"{setting}: {settings[setting]}")
+    ctxmgr_settings = collect_ctxmgr_settings(args.input_ctx_manager, args.output_ctx_manager)
+    for setting in ctxmgr_settings:
+        logger.info(f"{setting}: {ctxmgr_settings[setting]}")
 
     scheduler = ThreadPoolScheduler(max_workers=1)
     checkers_observable = rx.empty()
@@ -231,9 +231,9 @@ if __name__ == "__main__":
     summary = execute_prediction(
         predictor=external_predictor,
         input_ctx_manager=args.input_ctx_manager,
-        input_settings=settings["input_settings"],
+        input_settings=ctxmgr_settings["input_settings"],
         output_ctx_manager=args.output_ctx_manager,
-        output_settings=settings["output_settings"],
+        output_settings=ctxmgr_settings["output_settings"],
         inputs=input_values,
     )
     logger.info(f"execution summary: {summary}")
