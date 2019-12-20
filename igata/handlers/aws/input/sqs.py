@@ -152,6 +152,9 @@ class SQSMessageS3InputCSVPandasDataFrameCtxManager(InputCtxManagerBase):
         super().__init__(*args, **kwargs)
         self.sqs_queue_url = kwargs.get("sqs_queue_url")
         self.s3uri_keys = kwargs.get("s3uri_keys", settings.REQUEST_S3URI_KEYS)
+        if "," in self.s3uri_keys:
+            self.s3uri_keys = self.s3uri_keys.split(",")
+        logger.info(f"s3uri_keys={self.s3uri_keys}")
         assert isinstance(self.s3uri_keys, Iterable)
         self.max_processing_requests = kwargs.get("max_processing_requests", settings.MAX_PROCESSING_REQUESTS)
         logger.info(f"max_processing_requests: {self.max_processing_requests}")
