@@ -1,4 +1,5 @@
 import datetime
+import gzip
 import logging
 import os
 import time
@@ -48,6 +49,8 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
 
         self.results_keyname = kwargs.get("results_keyname", "result_s3_uris")
         self.hash_keyname = kwargs.get("hash_keyname", settings.DYNAMODB_REQUESTS_TABLE_HASHKEY_KEYNAME)
+
+        self.force_gzip_compression = kwargs.get("force_gzip_compression", False)
 
         self.executor = ThreadPoolExecutor()
         self.futures = []
@@ -158,21 +161,32 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
             if not filename:
                 filename = f"{job_id}.csv"
 
-            key = f"{self.output_s3_prefix}/{filename}"
             logger.info(f"preparing ({filename})...")
 
-            df_csv_buffer = StringIO()
             df = record["dataframe"]
             kwargs = self.get_pandas_to_csv_kwargs(record)
+            if self.force_gzip_compression:
+                logger.info(f'force_gzip_compression={self.force_gzip_compression}, using "gzip" compression...')
+                kwargs["compression"] = "gzip"
+                if not filename.lower().endswith(".gz"):
+                    logger.info('adding ".gz" extension to filename...')
+                    filename += ".gz"
+                    logger.info(f"filename={filename}")
 
             logger.debug(f"csv output kwargs: {kwargs}")
+            df_csv_buffer = StringIO()
             df.to_csv(df_csv_buffer, **kwargs)
             logger.info(f"preparing: SUCCESS!")
 
+            key = f"{self.output_s3_prefix}/{filename}"
             logger.info(f"writing results to: s3://{self.output_s3_bucket}/{key}")
             df_csv_buffer.seek(0)  # reset file for reading
-            encoded_buffer = BytesIO(df_csv_buffer.read().encode("utf8"))
-            encoded_buffer.seek(0)
+            if kwargs["compression"] == "gzip":
+                encoded_buffer = BytesIO(gzip.compress(df_csv_buffer.read().encode("utf8")))
+                encoded_buffer.seek(0)
+            else:
+                encoded_buffer = BytesIO(df_csv_buffer.read().encode("utf8"))
+                encoded_buffer.seek(0)
             S3.upload_fileobj(Fileobj=encoded_buffer, Bucket=self.output_s3_bucket, Key=key)
             logger.info("writing results: SUCCESS!")
 

@@ -1,3 +1,4 @@
+import gzip
 import logging
 import sys
 from pathlib import Path
@@ -8,7 +9,7 @@ import pandas
 from igata import settings
 from igata.handlers import OUTPUT_CONTEXT_MANAGER_REQUIRED_ENVARS
 from igata.handlers.aws.output.s3 import S3BucketPandasDataFrameCsvFileOutputCtxManager
-from tests.utils import setup_teardown_s3_bucket
+from tests.utils import setup_teardown_dyanmodb_table, setup_teardown_s3_bucket
 
 # add test root to PATH in order to load dummypredictor
 BASE_TEST_DIRECTORY = Path(__file__).absolute().parent.parent.parent
@@ -25,6 +26,7 @@ logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("botocore").setLevel(logging.WARNING)
 logging.getLogger("boto3").setLevel(logging.WARNING)
+logging.getLogger("s3transfer").setLevel(logging.WARNING)
 logging.getLogger("pynamodb.connection.base").setLevel(logging.WARNING)
 
 S3 = boto3.client("s3", endpoint_url=settings.S3_ENDPOINT)
@@ -60,7 +62,7 @@ def create_sample_dataframe() -> pandas.DataFrame:
 def test_output_handler_s3bucketpandasdataframecsvfileoutputctxmanager__no_tocsvkwargs():
     job_id = str(uuid4())
     sample_df = create_sample_dataframe()
-    record = {"job_id": job_id, "filename": "outputfilename.csv", "gzip": True, "dataframe": sample_df, "is_valid": True}
+    record = {"job_id": job_id, "filename": "outputfilename.csv", "dataframe": sample_df, "is_valid": True}
 
     output_settings = {"output_s3_bucket": TEST_OUTPUT_BUCKETNAME, "results_keyname": "result", "output_s3_prefix": "prefix/"}
     all_outputs = []
@@ -84,3 +86,65 @@ def test_output_handler_s3bucketpandasdataframecsvfileoutputctxmanager_required_
     expected_envars = [f"OUTPUT_CTXMGR_{e.upper()}" for e in S3BucketPandasDataFrameCsvFileOutputCtxManager.required_kwargs()]
     for expected_envar in expected_envars:
         assert expected_envar in OUTPUT_CONTEXT_MANAGER_REQUIRED_ENVARS[str(mgr)]
+
+
+@setup_teardown_s3_bucket(bucket=TEST_OUTPUT_BUCKETNAME)
+def test_output_handler_s3bucketpandasdataframecsvfileoutputctxmanager__with_gzip_compression():
+    job_id = str(uuid4())
+    sample_df = create_sample_dataframe()
+    record = {"job_id": job_id, "filename": "outputfilename.csv.gz", "dataframe": sample_df, "is_valid": True}
+
+    output_settings = {"output_s3_bucket": TEST_OUTPUT_BUCKETNAME, "results_keyname": "result", "output_s3_prefix": "prefix/"}
+    all_outputs = []
+    with S3BucketPandasDataFrameCsvFileOutputCtxManager(**output_settings) as pandascsvoutputmgr:
+        outputs = pandascsvoutputmgr.put_record(record)
+        all_outputs.append(outputs)
+
+    for output_info in all_outputs:
+        # check that file(s) in bucket
+        response = S3.get_object(**output_info)
+        assert response["ResponseMetadata"]["HTTPStatusCode"] == 200
+        with gzip.GzipFile(fileobj=response["Body"], mode="r") as gz:
+            lines = gz.read().decode("utf8").strip().split("\n")
+            assert len(lines) == 5, lines
+
+
+@setup_teardown_s3_bucket(bucket=TEST_OUTPUT_BUCKETNAME)
+@setup_teardown_dyanmodb_table(tablename="test_requests_table", fields={"job_id": ("S", "HASH")})
+def test_output_handler_s3bucketpandasdataframecsvfileoutputctxmanager__with_force_gzip_compression(*args, **kwargs):
+    job_id = str(uuid4())
+    sample_df = create_sample_dataframe()
+    record = {"job_id": job_id, "filename": "outputfilename.csv", "dataframe": sample_df, "is_valid": True, "result_s3_uris": []}
+
+    # create entry in dynamodb to be updated
+    table = kwargs.get("dynamodb_table")
+    table.put_item(
+        Item={
+            "job_id": job_id,
+            "predictor_status": "pending",
+            "updated_timestamp": 22,
+            "completed_timestamp": 11,
+            "result_s3_uris": "[]",
+            "errors": "[]",
+        }
+    )
+
+    output_settings = {
+        "output_s3_bucket": TEST_OUTPUT_BUCKETNAME,
+        "results_keyname": "result",
+        "output_s3_prefix": "prefix/",
+        "force_gzip_compression": True,
+    }
+    all_outputs = []
+    with S3BucketPandasDataFrameCsvFileOutputCtxManager(**output_settings) as pandascsvoutputmgr:
+        outputs = pandascsvoutputmgr.put_record(record)
+        all_outputs.append(outputs)
+
+    for output_info in all_outputs:
+        assert output_info["Key"].endswith(".gz")
+        # check that file(s) in bucket
+        response = S3.get_object(**output_info)
+        assert response["ResponseMetadata"]["HTTPStatusCode"] == 200
+        data = gzip.decompress(response["Body"].read())
+        lines = data.decode("utf8").strip().split("\n")
+        assert len(lines) == 5, lines

@@ -155,7 +155,8 @@ def _dynamodb_delete_table(tablename="test-table"):
 def setup_teardown_dyanmodb_table(tablename="test-table", fields=DEFAULT_FIELDS):
     def decorator(function):
         def wrapper(*args, **kwargs):
-            _dynamodb_create_table(tablename, fields)
+            table = _dynamodb_create_table(tablename, fields)
+            kwargs["dynamodb_table"] = table  # add table variable
             deleted = False
             result = None
             raised_exception = None
