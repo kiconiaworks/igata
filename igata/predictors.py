@@ -26,7 +26,7 @@ class PredictorBase:
         Issues signal.alarm({timeout_seconds}) when called.
         igata SIGALRM signal handler raises igata.exceptions.PredictTimeoutError.
         """
-        logger.info(f"processing_timeout set (PrecitorTimeout exception raised on timeout): {timeout_seconds}s")
+        logger.info(f"processing_timeout set (PredictTimeoutError exception will be raised on timeout): {timeout_seconds}s")
         self.PROCESSING_TIMEOUT_SECONDS = timeout_seconds
         signal.signal(signal.SIGALRM, sigalrm_handler)
         signal.alarm(timeout_seconds)
