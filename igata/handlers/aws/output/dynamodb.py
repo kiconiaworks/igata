@@ -1,7 +1,6 @@
 import datetime
 import json
 import logging
-import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
@@ -21,21 +20,6 @@ logger = logging.getLogger("cliexecutor")
 TEN_SECONDS = 10
 config = Config(connect_timeout=TEN_SECONDS, retries={"max_attempts": 5})
 DYNAMODB = boto3.resource("dynamodb", config=config, region_name=settings.AWS_REGION, endpoint_url=settings.DYNAMODB_ENDPOINT)
-DEFAULT_RESULTS_KEYNAME = "result"
-
-RESULTS_ADDITIONAL_PARENT_FIELDS = os.getenv("RESULTS_ADDITIONAL_PARENT_FIELDS", "request_id,s3_uri")  # comma separated field to include from parent
-RESULTS_SORTKEY_KEYNAME = os.getenv("RESULTS_SORTKEY_KEYNAME", "s3_uri")
-
-REQUESTS_TABLE_HASHKEY_KEYNAME = os.getenv("REQUESTS_TABLE_HASHKEY_KEYNAME", "request_id")
-REQUESTS_TABLE_RESULTS_KEYNAME = os.getenv("REQUESTS_TABLE_RESULTS_KEYNAME", DEFAULT_RESULTS_KEYNAME)
-DYNAMODB_DECIMAL_PRECISION_DIGITS = settings.DYNAMODB_DECIMAL_PRECISION_DIGITS  # make local reference for minor speedup
-
-JST = datetime.timezone(datetime.timedelta(hours=+9), "JST")
-
-# fields dependent on api implementation
-RESULTS_TABLE_STATE_FIELDNAME = "state"
-RESULTS_ERROR_STATE = "error"
-RESULTS_PROCESSED_STATE = "processed"
 
 
 class ResultExpectedKeyError(KeyError):
@@ -51,7 +35,13 @@ def get_nested_keys(record: dict) -> Generator[str, None, None]:
             yield k
 
 
-def update_item(item: dict, tablename: str) -> dict:
+def update_item(
+    item: dict,
+    tablename: str,
+    requests_hashkey: str = settings.DYNAMODB_REQUESTS_TABLE_HASHKEY_KEYNAME,
+    requests_results_key: str = settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME,
+    results_state_key: str = settings.DYNAMODB_RESULTS_TABLE_STATE_FIELDNAME,
+) -> dict:
     """
     Update the given item entry in the Dynamodb REQUESTS table
 
@@ -63,11 +53,12 @@ def update_item(item: dict, tablename: str) -> dict:
     table = DYNAMODB.Table(tablename)
     logger.info(f"Updating item in Table({tablename})...")
     logger.debug(f"item: {item}")
+    utc_timestamp = datetime.datetime.now(datetime.timezone.utc).timestamp()
     # update None to empty list for results
-    if item[REQUESTS_TABLE_RESULTS_KEYNAME] is None:
-        msg = f'item[REQUESTS_TABLE_RESULTS_KEYNAME] is None, setting REQUESTS_TABLE_RESULTS_KEYNAME({item[REQUESTS_TABLE_RESULTS_KEYNAME]}) to "[]"'
+    if item[settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME] is None:
+        msg = f"item[REQUESTS_TABLE_RESULTS_KEYNAME] is None, " f'setting REQUESTS_TABLE_RESULTS_KEYNAME({item[requests_results_key]}) to "[]"'
         logger.warning(msg)
-        item[REQUESTS_TABLE_RESULTS_KEYNAME] = "[]"  # to resolve issue with read from Pynamodb
+        item[settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME] = "[]"  # to resolve issue with read from Pynamodb
 
     try:
         # Assure that updated `errors` field is not None
@@ -75,23 +66,16 @@ def update_item(item: dict, tablename: str) -> dict:
         if "errors" in item and item["errors"] is not None:
             errors_field_value = item["errors"]
         response = table.update_item(
-            Key={REQUESTS_TABLE_HASHKEY_KEYNAME: item[REQUESTS_TABLE_HASHKEY_KEYNAME]},
+            Key={requests_hashkey: item[requests_hashkey]},
             UpdateExpression=(
                 "SET " "#s = :state, " "#r = :result, " "#e = :errors, " "#u = :updated_at_timestamp"  # should be REQUESTS_TABLE_RESULTS_KEYNAME
             ),
-            ExpressionAttributeNames={
-                "#s": RESULTS_TABLE_STATE_FIELDNAME,
-                "#r": REQUESTS_TABLE_RESULTS_KEYNAME,
-                "#e": "errors",
-                "#u": "updated_at_timestamp",
-            },
+            ExpressionAttributeNames={"#s": results_state_key, "#r": requests_results_key, "#e": "errors", "#u": "updated_at_timestamp"},
             ExpressionAttributeValues={
-                ":state": item[RESULTS_TABLE_STATE_FIELDNAME],
-                f":{REQUESTS_TABLE_RESULTS_KEYNAME}": item[REQUESTS_TABLE_RESULTS_KEYNAME],
+                ":state": item[results_state_key],
+                f":{requests_results_key}": item[requests_results_key],
                 ":errors": errors_field_value,
-                ":updated_at_timestamp": item.get(
-                    "updated_at_timestamp", int(datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).timestamp())
-                ),
+                ":updated_at_timestamp": item.get("updated_at_timestamp", int(utc_timestamp)),
             },
         )
     except Exception as e:
@@ -102,7 +86,7 @@ def update_item(item: dict, tablename: str) -> dict:
     return response
 
 
-def check_and_convert(value, precision=DYNAMODB_DECIMAL_PRECISION_DIGITS):
+def check_and_convert(value, precision=settings.DYNAMODB_DECIMAL_PRECISION_DIGITS):
     """convert float to decimal for dynamodb"""
     return value if not isinstance(value, float) else round(Decimal(value), precision)
 
@@ -141,15 +125,17 @@ class DynamodbOutputCtxManager(OutputCtxManagerBase):
         if "results_keyname" in kwargs:
             raise ValueError(
                 f'results_keyname({kwargs["results_keyname"]}) given, '
-                f"but not supported, RESULTS_KEYNAME *MUST* be: {REQUESTS_TABLE_RESULTS_KEYNAME}"
+                f"but not supported, RESULTS_KEYNAME *MUST* be: {settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME}"
             )
-        self.results_keyname = REQUESTS_TABLE_RESULTS_KEYNAME
+        self.requests_hashkey = kwargs.get("requests_hashkey", "request_id")
+        self.requests_statekey = kwargs.get("requests_statekey", "state")
+        self.results_keyname = settings.DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME
         self.executor = ThreadPoolExecutor()
         self.futures = []
         self.results_additional_parent_keys = kwargs.get("results_additional_parent_keys", None)
         if not self.results_additional_parent_keys:
-            if RESULTS_ADDITIONAL_PARENT_FIELDS:
-                fields = RESULTS_ADDITIONAL_PARENT_FIELDS.split(",")
+            if settings.DYNAMODB_RESULTS_ADDITIONAL_PARENT_FIELDS:
+                fields = settings.DYNAMODB_RESULTS_ADDITIONAL_PARENT_FIELDS.split(",")
                 self.results_additional_parent_keys = fields
         else:
             assert isinstance(self.results_additional_parent_keys, (list, tuple))
@@ -171,15 +157,22 @@ class DynamodbOutputCtxManager(OutputCtxManagerBase):
         request_update_items = 0
         detailed_results_put_items = 0
         total_results = 0
-        logger.debug(f"RESULTS_PROCESSED_STATE: {RESULTS_PROCESSED_STATE}")
-        logger.debug(f"REQUESTS_TABLE_RESULTS_KEYNAME: {REQUESTS_TABLE_RESULTS_KEYNAME}")
+
+        # create local references for minor speedup
+        DYNAMODB_RESULTS_PROCESSED_STATE = settings.DYNAMODB_RESULTS_PROCESSED_STATE
+        DYNAMODB_RESULTS_ERROR_STATE = settings.DYNAMODB_RESULTS_ERROR_STATE
+
+        DYNAMODB_RESULTS_SORTKEY_KEYNAME = settings.DYNAMODB_RESULTS_SORTKEY_KEYNAME
+
+        logger.debug(f"DYNAMODB_RESULTS_PROCESSED_STATE: {DYNAMODB_RESULTS_PROCESSED_STATE}")
+        logger.debug(f"DYNAMODB_REQUESTS_TABLE_RESULTS_KEYNAME: {self.results_keyname}")
         with detailed_results_table.batch_writer() as detailed_writer:
             for record in records:
                 # update record with state, so it is included in the resulting nested_keys
-                state = RESULTS_PROCESSED_STATE
+                state = DYNAMODB_RESULTS_PROCESSED_STATE
                 if "errors" in record and record["errors"]:
-                    state = RESULTS_ERROR_STATE
-                record[RESULTS_TABLE_STATE_FIELDNAME] = state
+                    state = DYNAMODB_RESULTS_ERROR_STATE
+                record[self.requests_statekey] = state
                 prepared_record, original_record_nested_data = prepare_record(record)
 
                 if self.results_keyname not in prepared_record:
@@ -187,7 +180,9 @@ class DynamodbOutputCtxManager(OutputCtxManagerBase):
                     prepared_record[self.results_keyname] = "[]"
                 logger.debug(f"update_item (prepared_record): {prepared_record}")
 
-                future = self.executor.submit(update_item, prepared_record, self.requests_tablename)
+                future = self.executor.submit(
+                    update_item, prepared_record, self.requests_tablename, self.requests_hashkey, self.results_keyname, self.requests_statekey
+                )
                 self.futures.append(future)
                 request_update_items += 1
 
@@ -219,8 +214,8 @@ class DynamodbOutputCtxManager(OutputCtxManagerBase):
                         # dynamodb doesn't support Float types are not supported. Use Decimal types instead.
                         output_item = {k: check_and_convert(v) for k, v in flattened_result}
 
-                        if RESULTS_SORTKEY_KEYNAME not in output_item:  # make sure that required sortkey is included
-                            raise ValueError(f"Expected SortKey({RESULTS_SORTKEY_KEYNAME} not in: {output_item}")
+                        if DYNAMODB_RESULTS_SORTKEY_KEYNAME not in output_item:  # make sure that required sortkey is included
+                            raise ValueError(f"Expected SortKey({DYNAMODB_RESULTS_SORTKEY_KEYNAME} not in: {output_item}")
 
                         # generate unique hashkey
                         output_item["hashkey"] = md5(str(sorted(flattened_result)).encode("utf8")).hexdigest()

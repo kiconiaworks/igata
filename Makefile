@@ -16,7 +16,7 @@ PROJECT_NAME = model-deployment-predictor
 
 ## Run flake8 and pydocstyle
 flake8:
-	pipenv run flake8 --max-line-length 150 --max-complexity 15 --ignore F403,F405,E252,W504 igata/
+	pipenv run flake8 --max-line-length 150 --max-complexity 25 --ignore F403,F405,E252,W504 igata/
 	pipenv run pydocstyle --ignore D100,D104,D105,D106,D107,D200,D203,D204,D205,D212,D213,D301,D400,D401,D403,D415 igata/
 
 ## run pylint

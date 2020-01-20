@@ -26,16 +26,27 @@ def sqs_queue_get_attributes(queue_name) -> dict:
     return SQS.get_queue_attributes(QueueUrl=queue_url, AttributeNames=["All"])
 
 
+def reset_bucket(bucket):
+    try:
+        _delete_bucket(bucket)
+    except:
+        pass
+    _create_bucket(bucket)
+
+
 def _create_bucket(bucket):
     S3.create_bucket(Bucket=bucket)
 
 
 def _delete_bucket(bucket):
-    response = S3.list_objects(Bucket=bucket)
-    if "Contents" in response:
-        for obj in response["Contents"]:
-            S3.delete_object(Bucket=bucket, Key=obj["Key"])
-    S3.delete_bucket(Bucket=bucket)
+    try:
+        response = S3.list_objects(Bucket=bucket)
+        if "Contents" in response:
+            for obj in response["Contents"]:
+                S3.delete_object(Bucket=bucket, Key=obj["Key"])
+        S3.delete_bucket(Bucket=bucket)
+    except Exception:
+        pass
 
 
 def _upload_to_s3(filepath, bucket, key):
@@ -50,6 +61,7 @@ def _delete_from_s3(bucket, key):
 def setup_teardown_s3_file(local_filepath: Path, bucket, key):
     def decorator(function):
         def wrapper(*args, **kwargs):
+            _delete_bucket(bucket)
             _create_bucket(bucket)
             _upload_to_s3(local_filepath, bucket, key)
             result = function(*args, **kwargs)
@@ -88,8 +100,11 @@ def _get_queue_url(queue_name):
 
 
 def _delete_sqs_queue(queue_name):
-    queue_url = _get_queue_url(queue_name)
-    SQS.delete_queue(QueueUrl=queue_url)
+    try:
+        queue_url = _get_queue_url(queue_name)
+        SQS.delete_queue(QueueUrl=queue_url)
+    except Exception:
+        pass
 
 
 def setup_teardown_sqs_queue(queue_name):
@@ -140,7 +155,8 @@ def _dynamodb_delete_table(tablename="test-table"):
 def setup_teardown_dyanmodb_table(tablename="test-table", fields=DEFAULT_FIELDS):
     def decorator(function):
         def wrapper(*args, **kwargs):
-            _dynamodb_create_table(tablename, fields)
+            table = _dynamodb_create_table(tablename, fields)
+            kwargs["dynamodb_table"] = table  # add table variable
             deleted = False
             result = None
             raised_exception = None

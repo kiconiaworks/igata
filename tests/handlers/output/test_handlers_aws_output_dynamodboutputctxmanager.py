@@ -7,29 +7,11 @@ from pathlib import Path
 
 import boto3
 from igata import settings
-from igata.handlers import INPUT_CONTEXT_MANAGERS, OUTPUT_CONTEXT_MANAGER_REQUIRED_ENVARS, OUTPUT_CONTEXT_MANAGERS
-from igata.handlers.aws.input.s3 import S3BucketImageInputCtxManager
-from igata.handlers.aws.input.sqs import SQSRecordS3InputImageCtxManager
 from igata.handlers.aws.output.dynamodb import DynamodbOutputCtxManager, prepare_record
-from igata.handlers.aws.output.s3 import S3BucketCsvFileOutputCtxManager
-from igata.handlers.aws.output.sqs import SQSRecordOutputCtxManager
-
-from .utils import (
-    _create_sqs_queue,
-    _delete_sqs_queue,
-    _dynamodb_create_table,
-    _dynamodb_delete_table,
-    _get_dynamodb_table_resource,
-    _get_queue_url,
-    setup_teardown_s3_bucket,
-    setup_teardown_s3_file,
-    setup_teardown_sqs_queue,
-    sqs_queue_get_attributes,
-    sqs_queue_send_message,
-)
+from tests.utils import _dynamodb_create_table, _dynamodb_delete_table, _get_dynamodb_table_resource
 
 # add test root to PATH in order to load dummypredictor
-BASE_TEST_DIRECTORY = Path(__file__).absolute().parent
+BASE_TEST_DIRECTORY = Path(__file__).absolute().parent.parent.parent
 sys.path.append(str(BASE_TEST_DIRECTORY))
 
 
@@ -59,157 +41,6 @@ TEST_IMAGE_S3URI = f"s3://{TEST_BUCKETNAME}/{TEST_IMAGE_FILENAME}"
 
 class DummyException(Exception):
     pass
-
-
-@setup_teardown_s3_file(local_filepath=TEST_IMAGE_FILEPATH, bucket=TEST_BUCKETNAME, key=TEST_IMAGE_FILENAME)
-def test_input_handler_s3bucketimageinputctxmanager():
-    image_found = False
-
-    s3uris = [TEST_IMAGE_S3URI]
-
-    input_settings = {}
-    with S3BucketImageInputCtxManager(**input_settings) as s3images:
-        for image, info in s3images.get_records(s3uris):
-            assert image.any()
-            assert info
-            image_found = True
-    assert image_found
-
-
-@setup_teardown_s3_file(local_filepath=TEST_IMAGE_FILEPATH, bucket=TEST_BUCKETNAME, key=TEST_IMAGE_FILENAME)
-def test_input_handler_sqsrecords3inputimagectxmanager():
-    image_found = False
-
-    request = {
-        "s3_uri": TEST_IMAGE_S3URI,
-        "collection_id": "events:1234:photographers:5678",
-        "image_id": None,  # populated below
-        "request_id": "request:{request_id}",
-    }
-
-    queue_url = _create_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
-    for i in range(10):
-        records = []
-        # add 2 requests and send
-        for message_request_count in range(2):
-            request["image_id"] = f"images:{message_request_count}"
-            request["request_id"] = request["request_id"].format(request_id=i)
-            records.append(request)
-        assert len(records) == 2
-
-        # add dummy records to input queue
-        sqs_queue_send_message(queue_name=TEST_INPUT_SQS_QUEUENAME, message_body=records)
-
-    input_settings = {"sqs_queue_url": queue_url, "max_processing_requests": 2}
-    expected_keys = ("s3_uri", "collection_id", "image_id", "request_id")
-
-    expected_count = 2  # defined by 'max_processing_requests'
-    with SQSRecordS3InputImageCtxManager(**input_settings) as s3images:
-        actual_count = 0
-        for image, info in s3images.get_records():
-            assert image.any()
-            assert info
-            assert all(k in info for k in expected_keys)
-            image_found = True
-            actual_count += 1
-    assert image_found
-    assert actual_count == expected_count
-
-
-@setup_teardown_s3_file(local_filepath=TEST_IMAGE_FILEPATH, bucket=TEST_BUCKETNAME, key=TEST_IMAGE_FILENAME)
-def test_input_handler_sqsrecordss3inputimagectxmanager_single_record():
-    """Assure that a single record is properly handled and returned"""
-    try:
-        _delete_sqs_queue(TEST_INPUT_SQS_QUEUENAME)
-    except Exception as e:
-        logger.exception(e)
-
-    records = [
-        {
-            "s3_uri": TEST_IMAGE_S3URI,
-            "collection_id": "collection:testmissingresult5",
-            "image_id": "images:06c72dc811ecbc8b7114f69d0a18afc9",
-            "sns_topic_arn": None,
-            "request_id": "c7d4d01c-9351-5dbe-8266-0fd14fab2d50",
-            "state": "queued",
-            "created_at_timestamp": 1559094119,
-            "updated_at_timestamp": 1559094118,
-            "result": None,
-            "errors": None,
-        }
-    ]
-    queue_url = _create_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
-
-    # add dummy records to input queue
-    sqs_queue_send_message(queue_name=TEST_INPUT_SQS_QUEUENAME, message_body=records)
-    input_settings = {"sqs_queue_url": queue_url, "max_processing_requests": 2}
-    expected_keys = ("s3_uri", "collection_id", "image_id", "request_id")
-
-    expected_count = 1  # defined by 'max_processing_requests'
-    with SQSRecordS3InputImageCtxManager(**input_settings) as s3images:
-        actual_count = 0
-        for image, info in s3images.get_records():
-            assert image.any()
-            assert info
-            assert all(k in info for k in expected_keys)
-            image_found = True
-            actual_count += 1
-    assert image_found
-    assert actual_count == expected_count
-
-
-@setup_teardown_s3_bucket(bucket=TEST_OUTPUT_BUCKETNAME)
-def test_output_handler_s3bucketcsvfileoutputctxmanager():
-    record_one = [1, "value"]
-    record_two = [2, "another"]
-    nested_dict_record = {"values": {"a": 1, "b": 2}, "other": "hi"}
-    records = (record_one, record_two, nested_dict_record)
-
-    output_settings = {"output_s3_bucket": TEST_OUTPUT_BUCKETNAME, "csv_fieldnames": ("other",), "output_headers": False}
-    with S3BucketCsvFileOutputCtxManager(**output_settings) as csvs3bucket:
-        csvs3bucket.put_records(records)
-        output_key = csvs3bucket.key
-
-    # check that file is in bucket
-    response = S3.get_object(Bucket=TEST_OUTPUT_BUCKETNAME, Key=output_key)
-    assert response["ResponseMetadata"]["HTTPStatusCode"] == 200
-    lines = response["Body"].read().decode("utf8").strip().split("\n")
-    print(lines)
-    assert len(lines) == 3
-
-
-def test_output_handler_s3bucketcsvfileoutputctxmanager_required_envars():
-    expected_required = ("output_s3_bucket", "csv_fieldnames")
-    assert all(f in S3BucketCsvFileOutputCtxManager.required_kwargs() for f in expected_required)
-    mgr = S3BucketCsvFileOutputCtxManager(output_s3_bucket="test_bucket1", csv_fieldnames=["a", "b", "c"])
-
-    expected_envars = [f"OUTPUT_CTXMGR_{e.upper()}" for e in S3BucketCsvFileOutputCtxManager.required_kwargs()]
-    for expected_envar in expected_envars:
-        assert expected_envar in OUTPUT_CONTEXT_MANAGER_REQUIRED_ENVARS[str(mgr)]
-
-
-@setup_teardown_sqs_queue(queue_name=TEST_SQS_OUTPUT_QUEUENAME)
-def test_output_handler_sqsrecordoutputctxmanager():
-
-    dict_sample = {"other": 1}
-    list_sample = [{"other": "value"}, {"more": "values"}]
-    queue_url = _get_queue_url(TEST_SQS_OUTPUT_QUEUENAME)
-    output_settings = {"sqs_queue_url": queue_url}
-    with SQSRecordOutputCtxManager(**output_settings) as sqs_output:
-        summary = sqs_output.put_records(dict_sample)
-        assert summary["sent_messages"] == 1
-        summary = sqs_output.put_records(list_sample)
-        assert summary["sent_messages"] == 2
-
-
-def test_output_handler_sqsrecordoutputctxmanager_required_envars():
-    expected_required = ("sqs_queue_url",)
-    assert all(f in SQSRecordOutputCtxManager.required_kwargs() for f in expected_required)
-    mgr = SQSRecordOutputCtxManager(sqs_queue_url="http://x.com/queue/test_bucket1")
-
-    expected_envars = [f"OUTPUT_CTXMGR_{e.upper()}" for e in SQSRecordOutputCtxManager.required_kwargs()]
-    for expected_envar in expected_envars:
-        assert expected_envar in OUTPUT_CONTEXT_MANAGER_REQUIRED_ENVARS[str(mgr)]
 
 
 def test_output_handler_dynamodboutputctxmanager():
@@ -282,7 +113,7 @@ def test_output_handler_dynamodboutputctxmanager():
         result_item = result["Item"]
         assert result_item
         assert "state" in result_item
-        assert result_item["state"] == "processed"
+        assert result_item["state"] == settings.DYNAMODB_RESULTS_PROCESSED_STATE
         assert result_item["result"] == result_json
         assert "collection_id" in result_item
         assert result_item["collection_id"] == collection_id
@@ -290,7 +121,7 @@ def test_output_handler_dynamodboutputctxmanager():
         result = request_table.get_item(Key={"request_id": request_item_no_result["request_id"]})
         result_item_no_result = result["Item"]
         assert result_item_no_result
-        assert result_item_no_result["state"] == "processed"
+        assert result_item_no_result["state"] == settings.DYNAMODB_RESULTS_PROCESSED_STATE
         assert any(result_item_no_result["result"] == null_value for null_value in (None, "[]", []))
         assert result_item_no_result["collection_id"] == collection_id
 
@@ -360,7 +191,7 @@ def test_output_handler_dynamodboutputctxmanager_put_record():
         result_item = result["Item"]
         assert result_item
         assert "state" in result_item
-        assert result_item["state"] == "processed"
+        assert result_item["state"] == settings.DYNAMODB_RESULTS_PROCESSED_STATE
         assert result_item["result"] == result_json
         assert "collection_id" in result_item
         assert result_item["collection_id"] == collection_id
@@ -389,68 +220,6 @@ def test_output_handler_dynamodboutputctxmanager_prepare_record():
     # check that non-nested keys are NOT included in original_nested
     assert "first" not in original_nested
     assert "second" not in original_nested
-
-
-def test_registered_context_managers():
-    supported_input_context_managers = ("S3BucketImageInputCtxManager", "SQSRecordS3InputImageCtxManager")
-    assert all(configured in supported_input_context_managers for configured in INPUT_CONTEXT_MANAGERS)
-
-    supported_output_context_managers = ("S3BucketCsvFileOutputCtxManager", "SQSRecordOutputCtxManager", "DynamodbOutputCtxManager")
-    assert all(configured in supported_output_context_managers for configured in OUTPUT_CONTEXT_MANAGERS)
-
-
-@setup_teardown_s3_file(local_filepath=TEST_IMAGE_FILEPATH, bucket=TEST_BUCKETNAME, key=TEST_IMAGE_FILENAME)
-def test_input_handler_sqsrecords3inputimagectxmanager_no_delete_sqs_messages_on_exception():
-    image_found = False
-
-    request = {
-        "s3_uri": TEST_IMAGE_S3URI,
-        "collection_id": "events:1234:photographers:5678",
-        "image_id": None,  # populated below
-        "request_id": "request:{request_id}",
-    }
-
-    queue_url = _create_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME, purge=True)
-    sqs_message_count = 10
-    records_per_message = 2
-    for i in range(sqs_message_count):
-        records = []
-        # add 2 requests and send
-        for message_request_count in range(records_per_message):
-            request["image_id"] = f"images:{message_request_count}"
-            request["request_id"] = request["request_id"].format(request_id=i)
-            records.append(request)
-        assert len(records) == records_per_message
-
-        # add dummy records to input queue
-        sqs_queue_send_message(queue_name=TEST_INPUT_SQS_QUEUENAME, message_body=records)
-
-    # confirm that messages are in queue
-    response = sqs_queue_get_attributes(queue_name=TEST_INPUT_SQS_QUEUENAME)
-    assert int(response["Attributes"]["ApproximateNumberOfMessages"]) == sqs_message_count
-
-    desired_processing_requests = sqs_message_count * records_per_message
-    input_settings = {"sqs_queue_url": queue_url, "max_processing_requests": desired_processing_requests}
-    expected_keys = ("s3_uri", "collection_id", "image_id", "request_id")
-
-    expected_count = desired_processing_requests  # defined by 'max_processing_requests'
-    try:
-        with SQSRecordS3InputImageCtxManager(**input_settings) as s3images:
-            actual_count = 0
-            for image, info in s3images.get_records():
-                assert image.any()
-                assert info
-                assert all(k in info for k in expected_keys)
-                actual_count += 1
-                if actual_count >= desired_processing_requests - 2:
-                    raise DummyException
-    except DummyException:
-        pass
-
-    # confirm that messages are NOT deleted and still available in queue
-    # --> Messages returned to QUEUE
-    response = sqs_queue_get_attributes(queue_name=TEST_INPUT_SQS_QUEUENAME)
-    assert int(response["Attributes"]["ApproximateNumberOfMessages"]) == sqs_message_count
 
 
 def test_output_handler_dynamodboutputctxmanager_duplicate_record_overwrite():

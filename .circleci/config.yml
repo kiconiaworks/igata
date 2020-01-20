@@ -47,14 +47,14 @@ jobs:
             # >>> commenting out since localstack is used and deployment not needed atm.
             #aws sts get-caller-identity
       - run:
-          name: run tests
-          command: |
-            make test
-      - run:
           name: code checks (flake8)
           command: |
             make flake8
 
+      - run:
+          name: run tests
+          command: |
+            make test
 
 workflows:
   version: 2

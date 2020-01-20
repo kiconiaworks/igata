@@ -1,15 +1,17 @@
 import datetime
+import gzip
 import logging
 import os
-from hashlib import md5
-from io import BytesIO
+import time
+from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO, StringIO
 from typing import List, Union
 
 import boto3
 
 from .... import settings
-from ....utils import flatten
 from . import OutputCtxManagerBase
+from .utils import prepare_record, update_item
 
 logger = logging.getLogger("cliexecutor")
 S3 = boto3.client("s3", endpoint_url=settings.S3_ENDPOINT)
@@ -19,26 +21,39 @@ DEFAULT_OUTPUT_HEADERS = True
 JST = datetime.timezone(datetime.timedelta(hours=+9), "JST")
 
 
-class S3BucketCsvFileOutputCtxManager(OutputCtxManagerBase):
+class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
     """Context manger for outputting results to an s3 bucket"""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.unique_hash = md5()
+
         self.output_s3_bucket = kwargs["output_s3_bucket"]
-        self.filename_prefix = kwargs.get("filename_prefix", DEFAULT_OUTPUT_FILENAME_PREFIX)
-        fieldnames_value = kwargs["csv_fieldnames"]
-        if isinstance(fieldnames_value, str):
-            # parse comma separated list
-            assert "," in fieldnames_value
-            self.csv_fieldnames = [v.strip() for v in fieldnames_value.split(",")]
-        elif isinstance(fieldnames_value, (list, tuple)):
-            self.csv_fieldnames = fieldnames_value
-        else:
-            raise ValueError(f'Invalid value given for "csv_fieldnames": {fieldnames_value}')
-        self.output_headers = kwargs.get("output_headers", DEFAULT_OUTPUT_HEADERS)
-        self.line_ending = kwargs.get("line_ending", "\n")
-        self.open_file = None
+
+        self.output_s3_prefix = kwargs.get("output_s3_prefix", None)
+        if self.output_s3_prefix and self.output_s3_prefix.startswith("/"):
+            self.output_s3_prefix = self.output_s3_prefix[1:]
+        if self.output_s3_prefix and self.output_s3_prefix.endswith("/"):
+            self.output_s3_prefix = self.output_s3_prefix[:-1]
+        if "get_pandas_to_csv_kwargs" in kwargs and kwargs["get_pandas_to_csv_kwargs"]:
+            logger.info('overwritting "self.get_pandas_to_csv_kwargs" with provided staticmethod')
+            self.get_pandas_to_csv_kwargs = kwargs["get_pandas_to_csv_kwargs"]
+
+        self.requests_tablename = kwargs.get("requests_tablename", None)
+        if not self.requests_tablename:
+            logger.debug(f'setting "requests_tablename" to: {settings.DYNAMODB_REQUESTS_TABLENAME}')
+            self.requests_tablename = settings.DYNAMODB_REQUESTS_TABLENAME
+
+        if "get_additional_dynamodb_request_update_attributes" in kwargs and kwargs["get_additional_dynamodb_request_update_attributes"]:
+            logger.info('updating with "get_additional_dynamodb_request_update_attributes" with optional staticmethod...')
+            self.get_additional_dynamodb_request_update_attributes = kwargs["get_additional_dynamodb_request_update_attributes"]
+
+        self.results_keyname = kwargs.get("results_keyname", "result_s3_uris")
+        self.hash_keyname = kwargs.get("hash_keyname", settings.DYNAMODB_REQUESTS_TABLE_HASHKEY_KEYNAME)
+
+        self.force_gzip_compression = kwargs.get("force_gzip_compression", False)
+
+        self.executor = ThreadPoolExecutor()
+        self.futures = []
 
     @classmethod
     def required_kwargs(cls):
@@ -51,47 +66,136 @@ class S3BucketCsvFileOutputCtxManager(OutputCtxManagerBase):
             OUTPUT_CTXMGR_CSV_FIELDNAMES
 
         """
-        required_keys = ("output_s3_bucket", "csv_fieldnames")
+        required_keys = ("output_s3_bucket", "results_keyname", "output_s3_prefix")
         return required_keys
 
     def put_records(self, records: List[Union[list, tuple, dict]], encoding: str = "utf8"):
-        """
-        Accept a list of values to output to file.
-        Given list/tuple converted to CSV string and encoded as UTF8
-        """
-        summary = {}
-        lines = 0
-        csv_line = None
-        is_first_line = True  # for generating unique key
-        for lines, record in enumerate(records, 1):
-            if isinstance(record, dict):
-                flattened_record = flatten(record)
-                record = [v for k, v in sorted(flattened_record)]
-            csv_line = ",".join(str(v) for v in record).encode(encoding)
-            if csv_line:
-                self.open_file.write(csv_line)
-                self.open_file.write(self.line_ending.encode(encoding))
-                if is_first_line:
-                    self.unique_hash.update(csv_line)
-        if csv_line:
-            self.unique_hash.update(csv_line)
-        summary["lines"] = lines
+        """Required implementation method."""
+        start = time.time()
+        request_update_items = 0
+        detailed_results_put_items = 0
+        total_results = 0
+
+        # create local references for minor speedup
+        DYNAMODB_RESULTS_PROCESSED_STATE = settings.DYNAMODB_RESULTS_PROCESSED_STATE
+        DYNAMODB_RESULTS_ERROR_STATE = settings.DYNAMODB_RESULTS_ERROR_STATE
+
+        logger.debug(f"DYNAMODB_RESULTS_PROCESSED_STATE: {DYNAMODB_RESULTS_PROCESSED_STATE}")
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        for record in records:
+            # update record with state, so it is included in the resulting nested_keys
+            state = DYNAMODB_RESULTS_PROCESSED_STATE
+            if "errors" in record and record["errors"]:
+                state = DYNAMODB_RESULTS_ERROR_STATE
+            record["predictor_status"] = state
+            record["completed_timestamp"] = now_utc.timestamp()
+            record["updated_timestamp"] = now_utc.timestamp()
+            if self.hash_keyname not in record:
+                record[self.hash_keyname] = record["request"][self.hash_keyname]
+
+            prepared_record, original_record_nested_data = prepare_record(record)
+
+            if self.results_keyname not in prepared_record:
+                logger.warning(f'Expected Key("{self.results_keyname}") not in {prepared_record}, setting "{self.results_keyname}" to "[]"')
+                prepared_record[self.results_keyname] = "[]"
+            logger.debug(f"update_item (prepared_record): {prepared_record}")
+
+            future = self.executor.submit(update_item, prepared_record, self.requests_tablename)
+            self.futures.append(future)
+            request_update_items += 1
+
+        end = time.time()
+        summary = {
+            "request_update_items": request_update_items,
+            "detailed_results_put_items": detailed_results_put_items,
+            "total_results": total_results,
+            "elapsed": end - start,
+        }
         return summary
 
-    @property
-    def key(self):
-        """Define the output key"""
-        now = datetime.datetime.now()
-        prefix = self.__class__.__name__.lower()
-        key = f"{prefix}/{self.filename_prefix}_{self.unique_hash.hexdigest()}_{now:%Y%m%d_%H%M%S}.csv"
-        return key
+    @staticmethod
+    def get_pandas_to_csv_kwargs(result: dict) -> dict:
+        """
+        Determine the appropriate pandas.to_csv(**kwargs) needed to write out the file
+        Result Record:
+            [
+                {
+                    "job_id": {JOB_ID|REQUEST_ID},
+                    "filename": {OUTPUT_FILENAME},
+                    "dataframe": {result dataframe},
+                }
+            ]
+        """
+        filename = result["filename"]
+        gzip_result = False
+        if filename.endswith("gz"):
+            logger.warning(f'filename({filename}).endswith(".gz"), will gzip results!')
+            gzip_result = True
 
-    def __enter__(self):
-        self.open_file = BytesIO()
-        if self.output_headers:
-            logger.debug(f"Outputting headers: {self.csv_fieldnames}")
-            self.put_records(self.csv_fieldnames)
-        return self
+        compression_type = "gzip" if gzip_result else None
+        kwargs = {
+            "sep": settings.DEFAULT_INPUT_CSV_DELIMITER,
+            "encoding": settings.DEFAULT_INPUT_CSV_ENCODING,
+            "header": settings.DEFAULT_INPUT_CSV_HEADER_LINES,
+            "index": False,
+            "compression": compression_type,
+        }
+        return kwargs
+
+    def put_record(self, record: dict, *args, **kwargs) -> dict:
+        """
+        Result Record:
+            {
+                "job_id": {JOB_ID|REQUEST_ID},
+                "filename": {OUTPUT_FILENAME},
+                "gzip": True,
+                "dataframe": {record dataframe},
+            }
+        """
+        output_info = {}
+        logger.info(f'record["is_valid"]={record["is_valid"]}')
+        has_errors = True if "errors" in record and record["errors"] else False
+        if not has_errors and record["is_valid"]:
+            job_id = record["job_id"]
+            filename = record.get("filename", None)
+            if not filename:
+                filename = f"{job_id}.csv"
+
+            logger.info(f"preparing ({filename})...")
+
+            df = record["dataframe"]
+            kwargs = self.get_pandas_to_csv_kwargs(record)
+            if self.force_gzip_compression:
+                logger.info(f'force_gzip_compression={self.force_gzip_compression}, using "gzip" compression...')
+                kwargs["compression"] = "gzip"
+                if not filename.lower().endswith(".gz"):
+                    logger.info('adding ".gz" extension to filename...')
+                    filename += ".gz"
+                    logger.info(f"filename={filename}")
+
+            logger.debug(f"csv output kwargs: {kwargs}")
+            df_csv_buffer = StringIO()
+            df.to_csv(df_csv_buffer, **kwargs)
+            logger.info(f"preparing: SUCCESS!")
+
+            key = f"{self.output_s3_prefix}/{filename}"
+            logger.info(f"writing results to: s3://{self.output_s3_bucket}/{key}")
+            df_csv_buffer.seek(0)  # reset file for reading
+            if kwargs["compression"] == "gzip":
+                encoded_buffer = BytesIO(gzip.compress(df_csv_buffer.read().encode("utf8")))
+                encoded_buffer.seek(0)
+            else:
+                encoded_buffer = BytesIO(df_csv_buffer.read().encode("utf8"))
+                encoded_buffer.seek(0)
+            S3.upload_fileobj(Fileobj=encoded_buffer, Bucket=self.output_s3_bucket, Key=key)
+            logger.info("writing results: SUCCESS!")
+
+            output_info = {"Bucket": self.output_s3_bucket, "Key": key}
+            # build result key
+            record[self.results_keyname] = [f"s3://{self.output_s3_bucket}/{key}"]
+        self._record_results.append(record)
+
+        return output_info
 
     def __exit__(self, *args, **kwargs):
         # make sure that any remaining records are put
@@ -100,7 +204,15 @@ class S3BucketCsvFileOutputCtxManager(OutputCtxManagerBase):
             logger.debug(f"put_records(): {len(self._record_results)}")
             self.put_records(self._record_results)
 
-        logger.info(f"Writing results to: s3://{self.output_s3_bucket}/{self.key}")
-        self.open_file.seek(0)  # set pointer to 0 so data can be read
-        S3.upload_fileobj(Fileobj=self.open_file, Bucket=self.output_s3_bucket, Key=self.key)
-        self.open_file.close()
+        for f in self.futures:
+            response = f.result(timeout=None)
+            logger.debug(f"future response: {response}")
+            if response and "ResponseMetadata" in response and "HTTPStatusCode" in response["ResponseMetadata"]:
+                status_code = response["ResponseMetadata"]["HTTPStatusCode"]
+                if status_code != 200:
+                    logger.error(f"(update_item) future response: [{status_code}] {response}")
+                else:
+                    logger.info(f"(update_item) future response: [{status_code}]")
+            else:
+                logger.warning(f"future UNKNOWN response: {response}")
+        self.executor.shutdown()

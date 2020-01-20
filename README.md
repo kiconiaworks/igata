@@ -1,7 +1,11 @@
 # igata README
 
 This project provides a inference infrastructure for easily preparing and deploying a trained model and wrapping the model in a way that easily allows 
-input/output to various services (for example: SQS, S3, DyanamoDB)
+input/output to various services (for example: SQS, S3, DyanamoDB).
+
+The goal is to separate where/how data is stored with how it's processed.
+
+
 
 ## Usage
 
@@ -54,9 +58,74 @@ Available Input Context Manager(s):
 - 'S3BucketImageInputCtxManager': [DEFAULT] Pulls IMAGE inputs from s3 bucket/key given a list of s3Uris (Ex: s3://bucket/my/key.png)
     - Required Option(s) Environment Variables: *None*
 
-- 'SQSRecordS3InputImageCtxManager': 
+- 'SQSMessageS3InputImageCtxManager': 
     - Required Option(s) Environment Variables: 
         - `INPUT_CTXMANAGER_SQS_QUEUE_URL`: Queue Url form which to retrieve messages from
+
+- 'SQSMessageS3InputCSVCtxManager': 
+    - Required Option(s) Environment Variables: 
+        - `INPUT_CTXMANAGER_SQS_QUEUE_URL`: Queue Url form which to retrieve messages from
+        
+#### SQSMessageS3InputImageCtxManager SQS message Format
+
+```yaml
+  schema:
+    type: array
+    items:
+      properties:
+        collection_id:
+          type: string
+          description: 親ID
+          example: 'events:1234'
+        image_id:
+          type: string
+          description: 画像ID
+          example: 'images:1234'
+        s3_uri:
+          type: string
+          description: 画像のS3オブジェクトURI
+          format: url
+          example: 's3://bucket/image.jpg'
+        sns_topic_arn:
+          type: string
+          description: 解析処理の完了を通知するSNSトピックのARN
+          example: 'arn:aws:sns:*:123456789012:notify_complete'
+      required:
+        - collection_id
+        - image_id
+        - s3_uri
+```
+
+#### SQSMessageS3InputCSVCtxManager SQS message Format
+
+```yaml
+  schema:
+    type: array
+    items:
+      properties:
+        collection_id:
+          type: string
+          description: 親ID
+          example: 'cf2609fe-20d8-44a4-8386-3d925926c512'
+        file_id:
+          type: string
+          description: ファイル特定ID
+          example: '4c1bec6e-34ae-4917-a96f-1cdc298cba65'
+        s3_uri:
+          type: string
+          description: 画像のS3オブジェクトURI
+          format: url
+          example: 's3://bucket/image.jpg'
+        sns_topic_arn:
+          type: string
+          description: 解析処理の完了を通知するSNSトピックのARN
+          example: 'arn:aws:sns:*:123456789012:notify_complete'
+      required:
+        - collection_id
+        - image_id
+        - s3_uri
+```
+
 
 ### Output Context Manager Environment Variables
 

@@ -1,23 +1,23 @@
 from collections import defaultdict
 
 from .aws.input.s3 import S3BucketImageInputCtxManager
-from .aws.input.sqs import SQSRecordS3InputImageCtxManager
+from .aws.input.sqs import SQSMessageS3InputCSVPandasDataFrameCtxManager, SQSMessageS3InputImageCtxManager
 from .aws.output.dynamodb import DynamodbOutputCtxManager
-from .aws.output.s3 import S3BucketCsvFileOutputCtxManager
+from .aws.output.s3 import S3BucketPandasDataFrameCsvFileOutputCtxManager
 from .aws.output.sqs import SQSRecordOutputCtxManager
 
 INPUT_CONTEXT_MANAGERS = {
     "S3BucketImageInputCtxManager": S3BucketImageInputCtxManager,
-    "SQSRecordS3InputImageCtxManager": SQSRecordS3InputImageCtxManager,
+    "SQSMessageS3InputImageCtxManager": SQSMessageS3InputImageCtxManager,
+    "SQSMessageS3InputCSVPandasDataFrameCtxManager": SQSMessageS3InputCSVPandasDataFrameCtxManager,
 }
-DEFAULT_INPUT_CONTEXT_MANAGER_NAME = "S3BucketImageInputCtxManager"
+
 
 OUTPUT_CONTEXT_MANAGERS = {
-    "S3BucketCsvFileOutputCtxManager": S3BucketCsvFileOutputCtxManager,
+    "S3BucketPandasDataFrameCsvFileOutputCtxManager": S3BucketPandasDataFrameCsvFileOutputCtxManager,
     "SQSRecordOutputCtxManager": SQSRecordOutputCtxManager,
     "DynamodbOutputCtxManager": DynamodbOutputCtxManager,
 }
-DEFAULT_OUTPUT_CONTEXT_MANAGER_NAME = "SQSRecordOutputCtxManager"
 
 # collect required parameters expected to be given as Environment variables
 INPUT_CONTEXT_MANAGER_REQUIRED_ENVARS = defaultdict(list)
