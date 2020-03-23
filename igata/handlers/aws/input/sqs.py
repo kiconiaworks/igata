@@ -16,6 +16,7 @@ from . import InputCtxManagerBase
 logger = logging.getLogger("cliexecutor")
 
 SQS = boto3.resource("sqs", endpoint_url=settings.SQS_ENDPOINT, region_name=settings.AWS_REGION)
+SQS_MAX_VISIBILITYTIMEOUT_SECONDS = 43200
 
 
 class SQSMessageS3InputImageCtxManager(InputCtxManagerBase):
@@ -57,6 +58,11 @@ class SQSMessageS3InputImageCtxManager(InputCtxManagerBase):
         all_processing_requests: Union[list, dict] = []  # SQS messages (should be a *list*, may be given an single dict)
 
         estimated_visibility_timeout = self.max_processing_requests * settings.MAX_PER_REQUEST_PROCESSING_SECONDS
+        if estimated_visibility_timeout > SQS_MAX_VISIBILITYTIMEOUT_SECONDS:
+            logger.warning(
+                f"estimated_visibility_timeout({estimated_visibility_timeout}) > SQS_MAX_VISIBILITYTIMEOUT_SECONDS({SQS_MAX_VISIBILITYTIMEOUT_SECONDS}), updating!"
+            )
+            estimated_visibility_timeout = SQS_MAX_VISIBILITYTIMEOUT_SECONDS
         logger.info(f"estimated_visibility_timeout: {estimated_visibility_timeout}")
 
         max_processing_requests_exceeded = False
@@ -181,6 +187,11 @@ class SQSMessageS3InputCSVPandasDataFrameCtxManager(InputCtxManagerBase):
         processing_requests: Union[list, dict] = []  # SQS messages (should be a *list*, may be given an single dict)
 
         estimated_visibility_timeout = self.max_processing_requests * settings.MAX_PER_REQUEST_PROCESSING_SECONDS
+        if estimated_visibility_timeout > SQS_MAX_VISIBILITYTIMEOUT_SECONDS:
+            logger.warning(
+                f"estimated_visibility_timeout({estimated_visibility_timeout}) > SQS_MAX_VISIBILITYTIMEOUT_SECONDS({SQS_MAX_VISIBILITYTIMEOUT_SECONDS}), updating!"
+            )
+            estimated_visibility_timeout = SQS_MAX_VISIBILITYTIMEOUT_SECONDS
         logger.info(f"estimated_visibility_timeout: {estimated_visibility_timeout}")
 
         max_processing_requests_exceeded = False
