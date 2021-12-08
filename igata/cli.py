@@ -213,12 +213,13 @@ if __name__ == "__main__":
     if settings.INSTANCE_ON_AWS:
         logger.info(f"instance_type: {get_instance_type()}")  # Assumes being run on AWS EC2 instance
         if args.is_spot_instance or settings.AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING:
-            logger.info(f"Start spot_instance_observable monitoring...")
+            logger.info("Start spot_instance_observable monitoring...")
             spot_instance_observable = spot_instance_check_observable()
             checkers_observable = checkers_observable.pipe(ops.merge(spot_instance_observable))
     elif args.is_spot_instance or settings.AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING:
         logger.warning(
-            f'"--spot-instance" flag or AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING envar given, ' f"but INSTANCE_ON_AWS == False, logging NOT performed!"
+            '"--spot-instance" flag or AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING envar given, '
+            "but INSTANCE_ON_AWS == False, logging NOT performed!"
         )
 
     checkers_observable.pipe(ops.publish()).connect(scheduler=scheduler)
