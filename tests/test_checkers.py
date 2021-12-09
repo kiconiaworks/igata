@@ -5,7 +5,7 @@ import rx.operators as ops
 from igata.checkers.aws.ec2 import INSTANCE_TYPE_URL, get_instance_type
 from igata.checkers.aws.observers import CheckerMessage, CheckersObserver
 from igata.checkers.aws.spot import INSTANCE_ACTION_URL, spot_instance_check_observable
-from rx.concurrency import CurrentThreadScheduler
+from rx.scheduler import CurrentThreadScheduler
 
 
 def test_spot_instance_checker_through_404(requests_mock):

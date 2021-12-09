@@ -8,7 +8,7 @@ from typing import List, Type
 
 import rx
 import rx.operators as ops
-from rx.concurrency import ThreadPoolScheduler
+from rx.scheduler import ThreadPoolScheduler
 
 from . import __version__, settings
 from .checkers.aws.ec2 import get_instance_type
