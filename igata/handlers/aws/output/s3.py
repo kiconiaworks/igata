@@ -176,7 +176,7 @@ class S3BucketPandasDataFrameCsvFileOutputCtxManager(OutputCtxManagerBase):
             logger.debug(f"csv output kwargs: {kwargs}")
             df_csv_buffer = StringIO()
             df.to_csv(df_csv_buffer, **kwargs)
-            logger.info(f"preparing: SUCCESS!")
+            logger.info("preparing: SUCCESS!")
 
             key = f"{self.output_s3_prefix}/{filename}"
             logger.info(f"writing results to: s3://{self.output_s3_bucket}/{key}")

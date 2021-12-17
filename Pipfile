@@ -5,11 +5,10 @@ name = "pypi"
 
 [packages]
 boto3 = "*"
-psycopg2-binary = "==2.8.4"
+psycopg2-binary = "*"
 imageio = "==2.6.1"
 retry = "*"
 docker = "*"
-rx = "==3.0.0b4"
 pandas = "*"
 
 [dev-packages]

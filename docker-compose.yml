@@ -2,10 +2,10 @@ version: '2.1'
 
 services:
   localstack:
-    image: localstack/localstack:0.10.3
-    container_name: "igata-localstack-0.10.3"
+    image: localstack/localstack:0.13.1
+    container_name: "igata-localstack-0.13.1"
     ports:
-      - "4567-4593:4567-4593"
+      - "4566:4566"
     environment:
       - SERVICES=s3,sqs,sns,dynamodb
 
@@ -14,4 +14,4 @@ services:
     depends_on:
       - localstack
     environment:
-      - TARGETS=localstack:4572,localstack:4575
+      - TARGETS=localstack:4566

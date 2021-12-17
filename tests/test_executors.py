@@ -5,7 +5,7 @@ from pathlib import Path
 from time import sleep
 from typing import Dict, List, Tuple
 
-from dummypredictor.predictors import (
+from .dummypredictor.predictors import (
     DummyInPandasDataFrameOutPandasCSVPredictor,
     DummyPredictorNoInputNoOutput,
     DummyPredictorNoInputNoOutputVariableOutput,

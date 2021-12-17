@@ -1,6 +1,7 @@
 import logging
 import sys
 from pathlib import Path
+from time import sleep
 
 import boto3
 from igata import settings
@@ -140,8 +141,6 @@ def test_input_handler_sqsrecordss3inputimagectxmanager_single_record():
 
 @setup_teardown_s3_file(local_filepath=TEST_IMAGE_FILEPATH, bucket=TEST_BUCKETNAME, key=TEST_IMAGE_FILENAME)
 def test_input_handler_sqsmessages3inputimagectxmanager_no_delete_sqs_messages_on_exception():
-    image_found = False
-
     request = {
         "s3_uri": TEST_IMAGE_S3URI,
         "collection_id": "events:1234:photographers:5678",
@@ -172,7 +171,6 @@ def test_input_handler_sqsmessages3inputimagectxmanager_no_delete_sqs_messages_o
     input_settings = {"sqs_queue_url": queue_url, "max_processing_requests": desired_processing_requests}
     expected_keys = ("s3_uri", "collection_id", "image_id", "request_id")
 
-    expected_count = desired_processing_requests  # defined by 'max_processing_requests'
     try:
         with SQSMessageS3InputImageCtxManager(**input_settings) as s3images:
             actual_count = 0
@@ -186,7 +184,9 @@ def test_input_handler_sqsmessages3inputimagectxmanager_no_delete_sqs_messages_o
     except DummyException:
         pass
 
+    assert actual_count > 0
     # confirm that messages are NOT deleted and still available in queue
     # --> Messages returned to QUEUE
+    sleep(settings.SQS_VISIBILITYTIMEOUT_SECONDS_ON_EXCEPTION)  # wait for messages to become visible
     response = sqs_queue_get_attributes(queue_name=TEST_INPUT_SQS_QUEUENAME)
     assert int(response["Attributes"]["ApproximateNumberOfMessages"]) == sqs_message_count

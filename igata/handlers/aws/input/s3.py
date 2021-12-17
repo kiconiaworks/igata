@@ -32,7 +32,7 @@ class S3BucketImageInputCtxManager(InputCtxManagerBase):
         :return:
         """
         if not s3_uris:
-            logger.warning(f"s3_uris not given as input!")
+            logger.warning("s3_uris not given as input!")
         # prepare arguments for processing
         if s3_uris:
             args = []
@@ -90,7 +90,7 @@ class S3BucketCSVInputCtxManager(InputCtxManagerBase):
         :return:
         """
         if not s3_uris:
-            logger.warning(f"s3_uris not given as input!")
+            logger.warning("s3_uris not given as input!")
         # prepare arguments for processing
         if s3_uris:
             args = []
