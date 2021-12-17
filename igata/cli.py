@@ -206,7 +206,7 @@ if __name__ == "__main__":
     if settings.INSTANCE_ON_AWS:
         logger.info(f"instance_type: {get_instance_type()}")  # Assumes being run on AWS EC2 instance
         if args.is_spot_instance or settings.AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING:
-            logger.info("Start spot_instance_observable monitoring...")
+            logger.info("Start SpotInstanceValueObserver monitoring...")
             instance_observer = SpotInstanceValueObserver(interval_seconds=1.0)
     elif args.is_spot_instance or settings.AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING:
         logger.warning(
