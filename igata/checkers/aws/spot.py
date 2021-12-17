@@ -39,6 +39,7 @@ class CheckerMessage(NamedTuple):
 
 
 class SpotInstanceValueObserver(Thread):
+    """Thread used to monitor and log when a change in state is detected"""
 
     def __init__(self, interval_seconds: float = 1.0):
         Thread.__init__(self)
@@ -48,11 +49,13 @@ class SpotInstanceValueObserver(Thread):
         self._terminate = False
 
     def terminate(self):
+        """Terminate the thread if started"""
         self._terminate = True
         if self.started:
             self.join()
 
     def run(self):
+        """Start thread"""
         self.started = True
         while True:
             response = access_spot_instance_state()
