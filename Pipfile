@@ -9,7 +9,6 @@ psycopg2-binary = "*"
 imageio = "==2.6.1"
 retry = "*"
 docker = "*"
-rx = ">=3.0.0,<3.1"
 pandas = "*"
 
 [dev-packages]

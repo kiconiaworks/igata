@@ -6,14 +6,9 @@ from collections import Counter
 from pathlib import Path
 from typing import List, Type
 
-import rx
-import rx.operators as ops
-from rx.scheduler import ThreadPoolScheduler
-
 from . import __version__, settings
 from .checkers.aws.ec2 import get_instance_type
-from .checkers.aws.observers import CheckersObserver
-from .checkers.aws.spot import spot_instance_check_observable
+from .checkers.aws.spot import SpotInstanceValueObserver
 from .defaults import DEFAULT_MODEL_VERSION
 from .handlers import (
     INPUT_CONTEXT_MANAGER_REQUIRED_ENVARS,
@@ -207,23 +202,20 @@ if __name__ == "__main__":
     for setting in ctxmgr_settings:
         logger.info(f"{setting}: {ctxmgr_settings[setting]}")
 
-    scheduler = ThreadPoolScheduler(max_workers=1)
-    checkers_observable = rx.empty()
-
+    instance_observer = None
     if settings.INSTANCE_ON_AWS:
         logger.info(f"instance_type: {get_instance_type()}")  # Assumes being run on AWS EC2 instance
         if args.is_spot_instance or settings.AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING:
             logger.info("Start spot_instance_observable monitoring...")
-            spot_instance_observable = spot_instance_check_observable()
-            checkers_observable = checkers_observable.pipe(ops.merge(spot_instance_observable))
+            instance_observer = SpotInstanceValueObserver(interval_seconds=1.0)
     elif args.is_spot_instance or settings.AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING:
         logger.warning(
             '"--spot-instance" flag or AWS_ENABLE_SPOTINSTANCE_STATE_LOGGING envar given, '
             "but INSTANCE_ON_AWS == False, logging NOT performed!"
         )
 
-    checkers_observable.pipe(ops.publish()).connect(scheduler=scheduler)
-    checkers_observable.subscribe(CheckersObserver())
+    if instance_observer:
+        instance_observer.start()
 
     input_values = None
     if args.inputs:
@@ -238,3 +230,5 @@ if __name__ == "__main__":
         inputs=input_values,
     )
     logger.info(f"execution summary: {summary}")
+    if instance_observer:
+        instance_observer.terminate()
