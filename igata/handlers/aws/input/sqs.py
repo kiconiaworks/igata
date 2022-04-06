@@ -3,7 +3,7 @@ import logging
 import time
 from collections.abc import Iterable
 from multiprocessing.pool import ThreadPool
-from typing import Dict, Generator, Tuple, Union
+from typing import Dict, Generator, List, Tuple, Union
 
 import boto3
 import numpy as np
@@ -18,13 +18,19 @@ logger = logging.getLogger("cliexecutor")
 SQS = boto3.resource("sqs", endpoint_url=settings.SQS_ENDPOINT, region_name=settings.AWS_REGION)
 
 
+def format_s3uri_keys(s3uri_keys: Union[List[str], str]) -> List[str]:
+    if isinstance(s3uri_keys, str):
+        s3uri_keys = s3uri_keys.split(",")
+    return [key for key in s3uri_keys if key != ""]
+
+
 class SQSMessageS3InputImageCtxManager(InputCtxManagerBase):
     """get_records() is called by results will use `put_records()` to output to the envar defined SQS Queue"""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.sqs_queue_url = kwargs.get("sqs_queue_url")
-        self.s3uri_keys = kwargs.get("s3uri_keys", settings.REQUEST_S3URI_KEYS)
+        self.s3uri_keys = format_s3uri_keys(kwargs.get("s3uri_keys", settings.REQUEST_S3URI_KEYS))
         assert isinstance(self.s3uri_keys, Iterable)
         self.max_processing_requests = kwargs.get("max_processing_requests", settings.MAX_PROCESSING_REQUESTS)
         logger.info(f"max_processing_requests: {self.max_processing_requests}")
@@ -152,9 +158,7 @@ class SQSMessageS3InputCSVPandasDataFrameCtxManager(InputCtxManagerBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.sqs_queue_url = kwargs.get("sqs_queue_url")
-        self.s3uri_keys = kwargs.get("s3uri_keys", settings.REQUEST_S3URI_KEYS)
-        if "," in self.s3uri_keys:
-            self.s3uri_keys = self.s3uri_keys.split(",")
+        self.s3uri_keys = format_s3uri_keys(kwargs.get("s3uri_keys", settings.REQUEST_S3URI_KEYS))
         logger.info(f"s3uri_keys={self.s3uri_keys}")
         assert isinstance(self.s3uri_keys, Iterable)
         self.max_processing_requests = kwargs.get("max_processing_requests", settings.MAX_PROCESSING_REQUESTS)
