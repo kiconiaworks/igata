@@ -10,7 +10,7 @@ import numpy as np
 import pandas
 
 from .... import settings
-from ....utils import parse_s3_uri, prepare_csv_dataframe, prepare_images, s3_key_exists
+from ....utils import get_item_dot_separated, parse_s3_uri, prepare_csv_dataframe, prepare_images, s3_key_exists
 from . import InputCtxManagerBase
 
 logger = logging.getLogger("cliexecutor")
@@ -98,7 +98,8 @@ class SQSMessageS3InputImageCtxManager(InputCtxManagerBase):
             for request in all_processing_requests:
                 logger.info(f"Processing request: {request}")
                 for s3uri_key in self.s3uri_keys:
-                    s3uri = request[s3uri_key]
+                    # s3uri = request[s3uri_key]
+                    s3uri = get_item_dot_separated(request, s3uri_key, raise_key_error=True)
                     logger.debug(f"s3uri: {s3uri}")
                     bucket, key = parse_s3_uri(s3uri)
 
@@ -243,7 +244,7 @@ class SQSMessageS3InputCSVPandasDataFrameCtxManager(InputCtxManagerBase):
                 args = []
                 s3uri_key_mapping = {}
                 for s3uri_key in self.s3uri_keys:
-                    s3uri = request[s3uri_key]
+                    s3uri = get_item_dot_separated(request, s3uri_key, raise_key_error=True)
                     bucket, key = parse_s3_uri(s3uri)
                     read_csv_kwargs = self.get_pandas_read_csv_kwargs(key)
                     logger.info(f"parser_s3_uri() bucket: {bucket}")

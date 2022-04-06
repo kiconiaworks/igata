@@ -117,3 +117,50 @@ def test_input_handler_sqsmessages3inputcsvpandasdataframectxmanager_multiple_s3
 
             actual_count += 1
     assert actual_count == expected_count
+
+
+@setup_teardown_s3_file(local_filepath=SAMPLE_CSV_FILEPATH, bucket=TEST_BUCKETNAME, key=SAMPLE_CSV_FILEPATH.name)
+def test_input_handler_sqsmessages3inputcsvpandasdataframectxmanager_multiple_multilayered_s3urikeys():
+    _upload_to_s3(SAMPLE_CSVGZ_FILEPATH, TEST_BUCKETNAME, SAMPLE_CSVGZ_FILEPATH.name)
+    test_s3uri_1 = f"s3://{TEST_BUCKETNAME}/{SAMPLE_CSV_FILEPATH.name}"
+    test_s3uri_2 = f"s3://{TEST_BUCKETNAME}/{SAMPLE_CSVGZ_FILEPATH.name}"
+    request = {
+        "s3_uri_keys_container": {
+            "key1": test_s3uri_1,
+            "key2": test_s3uri_2,
+        },
+        "collection_id": "events:1234:photographers:5678",
+        "request_id": "request:{request_id}",
+    }
+
+    _delete_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
+    queue_url = _create_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
+    for i in range(10):
+
+        # update request_id
+        request["request_id"] = request["request_id"].format(request_id=i)
+
+        # add dummy records to input queue
+        sqs_queue_send_message(queue_name=TEST_INPUT_SQS_QUEUENAME, message_body=request)
+
+    input_settings = {
+        "sqs_queue_url": queue_url,
+        "max_processing_requests": 2,
+        "s3uri_keys": ["s3_uri_keys_container.key1", "s3_uri_keys_container.key2"],
+    }
+
+    expected_count = 2  # defined by 'max_processing_requests'
+    with SQSMessageS3InputCSVPandasDataFrameCtxManager(**input_settings) as dataframeinput:
+        actual_count = 0
+        for dfrecords, info in dataframeinput.get_records():
+            assert isinstance(dfrecords, dict)
+            assert "s3uri_keys" in info
+            assert "sqs_queue_url" in info
+            assert "max_processing_requests" in info
+            assert "is_valid" in info
+            assert info["is_valid"] is True
+            for df in dfrecords.values():
+                assert isinstance(df, pandas.DataFrame)
+
+            actual_count += 1
+    assert actual_count == expected_count
