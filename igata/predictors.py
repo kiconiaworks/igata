@@ -35,7 +35,7 @@ class PredictorBase:
         """Hook for providing igata.handlers.aws.mixins for additional pre processing. (Intended for signaling, db updates, etc.)"""
         pass
 
-    def preprocess_input(self, input_record, meta: Union[dict, None] = None):
+    def preprocess_input(self, input_record: Any, meta: Union[dict, None] = None):
         """
         (Optional)
         If defined, this method will be called on the input_record provided,
@@ -44,7 +44,7 @@ class PredictorBase:
         return input_record
 
     @abstractmethod
-    def predict(self, input_record, meta: Union[dict, None] = None) -> Union[list, dict]:
+    def predict(self, input_record: Any, meta: Union[dict, None] = None) -> Union[list, dict]:
         """
         (Required) method must be defined by user
         Takes the input_record and provides a result prediction based on the given input_record.
@@ -55,7 +55,7 @@ class PredictorBase:
         prediction_result = {}
         return prediction_result
 
-    def postprocess_output(self, prediction_result, meta: Union[dict, None] = None) -> Union[list, dict]:
+    def postprocess_output(self, prediction_result: Any, meta: Union[dict, None] = None) -> Union[list, dict]:
         """
         (Optional)
         If defined, this method will be called on the result of the `predict` method.
