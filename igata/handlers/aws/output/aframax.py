@@ -90,10 +90,12 @@ class AframaxRecordOutputCtxManager(OutputCtxManagerBase):
             response = requests.patch(patch_url, json=patch_body, auth=HTTPBasicAuth(self.aframax_basicauth_user, self.aframax_basicauth_password))
             a_result = {"status_code": response.status_code}
             if 200 <= response.status_code <= 300:
+                logger.info(f"Patch request was processed successfully with response {response.text}")
                 summary["success_count"] += 1
                 a_result["error"] = ""
                 a_result["message"] = response.json()
             else:
+                logger.warn(f"Patch request was processed successfully with status {response.status_code} and response {response.text}")
                 summary["error_count"] += 1
                 a_result["message"] = []
                 a_result["error"] = response.text
