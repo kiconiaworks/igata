@@ -1,6 +1,6 @@
 import logging
 from copy import deepcopy
-from typing import Union
+from typing import Any, Union
 from urllib.parse import urljoin
 
 import boto3
@@ -42,7 +42,7 @@ class AframaxRecordOutputCtxManager(OutputCtxManagerBase):
         return required
 
     @classmethod
-    def validate_result_records(cls, records: Union[dict, list]):
+    def validate_result_record(cls, record: Union[dict, Any]):
         """
         Checks whether the records format is correct.
         minimum valid format:
@@ -53,26 +53,26 @@ class AframaxRecordOutputCtxManager(OutputCtxManagerBase):
             },
             "prediction": JSON parsable anything
         }
-        :param records: data that you want to validate
+        :param record: data that you want to validate
         :return: nothing, but AssertError will be thrown if data was bad format.
         """
-        assert isinstance(records, dict), f"{cls.__name__} requires result records is not a {type(records)} but a dictionary."
-        assert "request" in records.keys(), f"{cls.__name__} requires result records contains `request` key."
-        assert "job_id" in records["request"].keys(), f"{cls.__name__} requires `request` part of result records contains `job_id` key."
+        assert isinstance(record, dict), f"{cls.__name__} requires result record is not a {type(record)} but a dictionary."
+        assert "request" in record.keys(), f"{cls.__name__} requires result record contains `request` key."
+        assert "job_id" in record["request"].keys(), f"{cls.__name__} requires `request` part of result record contains `job_id` key."
         assert (
-            "request_payload" in records["request"].keys()
-        ), f"{cls.__name__} requires `request` part of result records contains `request_payload` key."
-        assert "prediction" in records.keys(), f"{cls.__name__} requires result records contains `prediction` key."
+            "request_payload" in record["request"].keys()
+        ), f"{cls.__name__} requires `request` part of result record contains `request_payload` key."
+        assert "prediction" in record.keys(), f"{cls.__name__} requires result record contains `prediction` key."
 
     @staticmethod
-    def compose_patch_url(aframax_url: str, records: dict) -> str:
+    def compose_patch_url(aframax_url: str, record: dict) -> str:
         """compose aframax job patch url."""
-        return urljoin(aframax_url, f"/jobs/{records['request']['job_id']}")
+        return urljoin(aframax_url, f"/jobs/{record['request']['job_id']}")
 
-    def compose_patch_body(self, records: dict) -> dict:
+    def compose_patch_body(self, record: dict) -> dict:
         """compose actual posting body. Override here if you need."""
-        patch_body = deepcopy(records["request"]["request_payload"])
-        patch_body[self.aframax_prediction_key] = records["prediction"]
+        patch_body = deepcopy(record["request"]["request_payload"])
+        patch_body[self.aframax_prediction_key] = record["prediction"]
         return patch_body
 
     def put_records(self, records: Union[dict, list]) -> dict:
@@ -84,17 +84,22 @@ class AframaxRecordOutputCtxManager(OutputCtxManagerBase):
             given `message_body` will be converted to JSON and sent to the defined Aframax service.
 
         """
-        self.validate_result_records(records)
-        patch_body = self.compose_patch_body(records)
-        patch_url = self.compose_patch_url(self.aframax_url, records)
-        response = requests.patch(patch_url, json=patch_body, auth=HTTPBasicAuth(self.aframax_basicauth_user, self.aframax_basicauth_password))
-        summary = {"status_code": response.status_code}
-        if 200 <= response.status_code <= 300:
-            summary["error"] = ""
-            summary["message"] = response.json()
-        else:
-            summary["message"] = []
-            summary["error"] = response.text
+        summary = {"success_count": 0, "error_count": 0, "details": []}
+        for record in records:
+            self.validate_result_record(record)
+            patch_body = self.compose_patch_body(record)
+            patch_url = self.compose_patch_url(self.aframax_url, record)
+            response = requests.patch(patch_url, json=patch_body, auth=HTTPBasicAuth(self.aframax_basicauth_user, self.aframax_basicauth_password))
+            a_result = {"status_code": response.status_code}
+            if 200 <= response.status_code <= 300:
+                summary["success_count"] += 1
+                a_result["error"] = ""
+                a_result["message"] = response.json()
+            else:
+                summary["error_count"] += 1
+                a_result["message"] = []
+                a_result["error"] = response.text
+            summary["details"].append(a_result)
         return summary
 
     def __enter__(self):
