@@ -3,15 +3,12 @@ from copy import deepcopy
 from typing import Any, Union
 from urllib.parse import urljoin
 
-import boto3
 import requests
 from requests.auth import HTTPBasicAuth
 
-from .... import settings
 from . import OutputCtxManagerBase
 
 logger = logging.getLogger("cliexecutor")
-SQS = boto3.client("sqs", endpoint_url=settings.SQS_ENDPOINT, region_name="ap-northeast-1")
 
 
 class AframaxRecordOutputCtxManager(OutputCtxManagerBase):
@@ -89,6 +86,7 @@ class AframaxRecordOutputCtxManager(OutputCtxManagerBase):
             self.validate_result_record(record)
             patch_body = self.compose_patch_body(record)
             patch_url = self.compose_patch_url(self.aframax_url, record)
+            logger.info(f"Sending Patch request to Aframax at {patch_url} with body {patch_body}")
             response = requests.patch(patch_url, json=patch_body, auth=HTTPBasicAuth(self.aframax_basicauth_user, self.aframax_basicauth_password))
             a_result = {"status_code": response.status_code}
             if 200 <= response.status_code <= 300:
