@@ -104,16 +104,21 @@ Available Input Context Manager(s):
 
 ### `get_records()` info object
 
+All "Input Context Managers" return 
+
 ```python
 {
     "bucket": str,
     "key": str,
-    "current_s3uri_key": str,
     "downloaded_time": float,    
-    "errors": List[str]
+    "errors": Optional[List[str]]
 }
-
 ```
+
+#### SQSMessageS3InputImageCtxManager Additional Info fields
+
+- "current_s3uri_key": includes the s3uri key used to retrieve the related record
+
         
 ### SQSMessageS3InputImageCtxManager SQS message Format
 
