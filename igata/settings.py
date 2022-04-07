@@ -25,7 +25,12 @@ if INPUT_CONTEXT_MANAGER_NAME not in VALID_INPUT_CONTEXT_MANAGER_NAMES:
     logger.warning(f"Invalid INPUT_CONTEXT_MANAGER({INPUT_CONTEXT_MANAGER_NAME}), using default: {DEFAULT_INPUT_CONTEXT_MANAGER_NAME}")
     INPUT_CONTEXT_MANAGER_NAME = DEFAULT_INPUT_CONTEXT_MANAGER_NAME
 
-VALID_OUTPUT_CONTEXT_MANAGER_NAMES = ("S3BucketPandasDataFrameCsvFileOutputCtxManager", "SQSRecordOutputCtxManager", "DynamodbOutputCtxManager")
+VALID_OUTPUT_CONTEXT_MANAGER_NAMES = (
+    "S3BucketPandasDataFrameCsvFileOutputCtxManager",
+    "SQSRecordOutputCtxManager",
+    "DynamodbOutputCtxManager",
+    "AframaxRecordOutputCtxManager",
+)
 
 DEFAULT_OUTPUT_CONTEXT_MANAGER_NAME = "S3BucketPandasDataFrameCsvFileOutputCtxManager"
 OUTPUT_CONTEXT_MANAGER_NAME = os.getenv("OUTPUT_CONTEXT_MANAGER", DEFAULT_OUTPUT_CONTEXT_MANAGER_NAME)

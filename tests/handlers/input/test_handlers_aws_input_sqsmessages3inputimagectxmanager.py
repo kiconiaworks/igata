@@ -98,6 +98,54 @@ def test_input_handler_sqsmessages3inputimagectxmanager():
 
 
 @setup_teardown_s3_file(local_filepath=TEST_IMAGE_FILEPATH, bucket=TEST_BUCKETNAME, key=TEST_IMAGE_FILENAME)
+def test_input_handler_sqsmessages3inputimagectxmanager_with_multilayered_s3uri_key():
+    image_found = False
+
+    request = {
+        "request_details": {"s3_uri": TEST_IMAGE_S3URI, "some_important_details": "this is important"},
+        "collection_id": "events:1234:photographers:5678",
+        "image_id": None,  # populated below
+        "request_id": "request:{request_id}",
+    }
+
+    try:
+        _delete_sqs_queue(TEST_INPUT_SQS_QUEUENAME)
+    except Exception as e:
+        logger.exception(e)
+
+    queue_url = _create_sqs_queue(queue_name=TEST_INPUT_SQS_QUEUENAME)
+    for i in range(10):
+        records = []
+        # add 2 requests and send
+        for message_request_count in range(2):
+            request["image_id"] = f"images:{message_request_count}"
+            request["request_id"] = request["request_id"].format(request_id=i)
+            records.append(request)
+        assert len(records) == 2
+
+        # add dummy records to input queue
+        sqs_queue_send_message(queue_name=TEST_INPUT_SQS_QUEUENAME, message_body=records)
+
+    input_settings = {"sqs_queue_url": queue_url, "max_processing_requests": 2, "s3uri_keys": ["request_details.s3_uri"]}
+    expected_keys = ("request_details", "collection_id", "image_id", "request_id")
+
+    expected_count = 2  # defined by 'max_processing_requests'
+    with SQSMessageS3InputImageCtxManager(**input_settings) as s3images:
+        actual_count = 0
+        for image, info in s3images.get_records():
+            print(image)
+            print(info)
+            assert image.any()
+            assert info
+            assert all(k in info for k in expected_keys)
+            image_found = True
+            actual_count += 1
+            assert "s3_uri" in info["request_details"].keys()
+    assert image_found
+    assert actual_count == expected_count
+
+
+@setup_teardown_s3_file(local_filepath=TEST_IMAGE_FILEPATH, bucket=TEST_BUCKETNAME, key=TEST_IMAGE_FILENAME)
 def test_input_handler_sqsrecordss3inputimagectxmanager_single_record():
     """Assure that a single record is properly handled and returned"""
     try:

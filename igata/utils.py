@@ -11,7 +11,7 @@ from gzip import GzipFile
 from hashlib import md5
 from io import BytesIO, StringIO
 from pathlib import Path
-from typing import Generator, List, Optional, Tuple, Union
+from typing import Any, Generator, List, Optional, Tuple, Union
 from urllib.error import HTTPError
 from urllib.parse import unquote, urlparse
 from uuid import NAMESPACE_URL, uuid5
@@ -319,3 +319,59 @@ def s3_key_exists(bucket: str, key: str) -> bool:
             logger.error(f"Unknown ClientError: {e.args}")
 
     return exists
+
+
+def get_item_dot_separated(target_dictionary: dict, key: Hashable, default: Any = None, raise_key_error: bool = True) -> Any:
+    """
+    ２階層やそれよりも深い階層の辞書アイテムにアクセスする関数。DOT-SEPARATEDな辞書キーを使用してアクセスできる。
+    :param target_dictionary: アイテムを取り出したい辞書。
+    :param key: DOT-SEPARATEDなStringか、または単にHashable。
+    :param default: 辞書キーが見つからなかった場合に返すデフォルト値。
+    :param raise_key_error: 辞書キーが見つからなかった場合にkey_errorを返すかどうか。
+    :return: 辞書キーを解決できた場合には該当の辞書アイテム、解決できずraise_key_errorでない場合はデフォルト値を返す。
+    >>> target_dict = {'a1': {'b': {'c1': 100, 'c2': 200, 'c3': 'TARGET'}, 'd': 1000},
+    ...                'a2': {'b': {'c1': 100, 'c2': 200, 'c3': 'DUMMY'}, 'd': 1000},
+    ...                100: 100,
+    ...                200: {300: 300}}
+    >>> get_item_dot_separated(target_dict, 'a1.b.c3', None)
+    'TARGET'
+    >>> get_item_dot_separated(target_dict, 'a2.b.c3', None)
+    'DUMMY'
+    >>> get_item_dot_separated(target_dict, 'a.b.c3', None)
+    Traceback (most recent call last):
+    ...
+    KeyError: 'a.b.c3 at a'
+    >>> get_item_dot_separated(target_dict, 'a1.b.c4', None)
+    Traceback (most recent call last):
+    ...
+    KeyError: 'a1.b.c4 at c4'
+    >>> get_item_dot_separated(target_dict, 'a1.b', None)
+    {'c1': 100, 'c2': 200, 'c3': 'TARGET'}
+    >>> get_item_dot_separated(target_dict, 100, None)
+    100
+    >>> get_item_dot_separated(target_dict, '200.300', None) # not work with integer key
+    Traceback (most recent call last):
+    ...
+    KeyError: '200.300 at 200'
+    >>> get_item_dot_separated(target_dict, 'a.b.c3', 'DEFAULT', raise_key_error=False)
+    'DEFAULT'
+    """
+    if not isinstance(key, str):
+        if key not in target_dictionary.keys() and raise_key_error:
+            raise KeyError(key)
+        return target_dictionary.get(key, default)
+
+    if "." not in key:
+        if key not in target_dictionary.keys() and raise_key_error:
+            raise KeyError(key)
+        return target_dictionary.get(key, default)
+
+    dot_separated_keys = key.split(".")
+    layer = target_dictionary
+    for key_at_layer in dot_separated_keys:
+        if key_at_layer not in layer.keys():
+            if raise_key_error:
+                raise KeyError(f"{key} at {key_at_layer}")
+            return default
+        layer = layer[key_at_layer]
+    return layer

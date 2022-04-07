@@ -2,6 +2,7 @@ from collections import defaultdict
 
 from .aws.input.s3 import S3BucketImageInputCtxManager
 from .aws.input.sqs import SQSMessageS3InputCSVPandasDataFrameCtxManager, SQSMessageS3InputImageCtxManager
+from .aws.output.aframax import AframaxRecordOutputCtxManager
 from .aws.output.dynamodb import DynamodbOutputCtxManager
 from .aws.output.s3 import S3BucketPandasDataFrameCsvFileOutputCtxManager
 from .aws.output.sqs import SQSRecordOutputCtxManager
@@ -17,6 +18,7 @@ OUTPUT_CONTEXT_MANAGERS = {
     "S3BucketPandasDataFrameCsvFileOutputCtxManager": S3BucketPandasDataFrameCsvFileOutputCtxManager,
     "SQSRecordOutputCtxManager": SQSRecordOutputCtxManager,
     "DynamodbOutputCtxManager": DynamodbOutputCtxManager,
+    "AframaxRecordOutputCtxManager": AframaxRecordOutputCtxManager,
 }
 
 # collect required parameters expected to be given as Environment variables
