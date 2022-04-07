@@ -56,7 +56,7 @@ class AframaxRecordOutputCtxManager(OutputCtxManagerBase):
         :param records: data that you want to validate
         :return: nothing, but AssertError will be thrown if data was bad format.
         """
-        assert isinstance(records, dict), f"{cls.__name__} requires result records is not a list but a dictionary."
+        assert isinstance(records, dict), f"{cls.__name__} requires result records is not a {type(records)} but a dictionary."
         assert "request" in records.keys(), f"{cls.__name__} requires result records contains `request` key."
         assert "job_id" in records["request"].keys(), f"{cls.__name__} requires `request` part of result records contains `job_id` key."
         assert (
