@@ -19,6 +19,13 @@ SQS = boto3.resource("sqs", endpoint_url=settings.SQS_ENDPOINT, region_name=sett
 
 
 def format_s3uri_keys(s3uri_keys: Union[List[str], str]) -> List[str]:
+    """
+    s3uri_keysを正しいフォーマット（list of strings）に直す。
+    ・入力がstring: ,区切りでリスト化し、空文字を除去
+    ・入力がlist of strings: から文字を除去
+    :param s3uri_keys: 正しいフォーマットに直したいs3uri_keys. stringかlist of strings
+    :return: list of strings
+    """
     if isinstance(s3uri_keys, str):
         s3uri_keys = s3uri_keys.split(",")
     return [key for key in s3uri_keys if key != ""]
