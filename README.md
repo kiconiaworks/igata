@@ -49,24 +49,78 @@ The following environment variables can be used to control a built image executo
 - `PREDICTOR_MODULE`: Dotted path to module containing *user-defined* Predictor class (Ex: 'mypackage.submodule')
 -  `PREDICTOR_CLASS_NAME`: [DEFAULT="Predictor"] *User-defined* Predictor class name that subclasses `igata.predictors.PredictorBase` (Ex: "MyPredictor")
 
+
+
+## Input Context Managers
+
+Defined in: `igata.handlers.aws.input`
+
+Input Context managers are used to retrieve the data necessary for making a prediction. 
+The following context managers are available 
+
+The context manager specific record object and an "info" object are yielded from `.get_records(s3_uris: List[str])`.
+
+
+Available Input Context Manager(s):
+
+- 'S3BucketImageInputCtxManager' (`igata.handlers.aws.input.s3.S3BucketImageInputCtxManager`) : [DEFAULT] Pulls IMAGE inputs from s3 bucket/key given a list of s3Uris (Ex: s3://bucket/my/key.png)
+    - Required Option(s) Environment Variables: *None*
+
+- 'S3BucketCSVInputCtxManager' (`igata.handlers.aws.input.s3.S3BucketCSVInputCtxManager`) : Yeilds csv reader objects s3 bucket/key given a list of s3Uris (Ex: s3://bucket/my/key.png)  
+  - Required Options(s) Environment Variables: *None*
+  - Constructor Options:
+    - `reader`: Union[csv.reader, csv.DictReader]
+      - Default=csv.DictReader
+
+- 'SQSMessageS3InputImageCtxManager' (`igata.handlers.aws.input.sqs.SQSMessageS3InputImageCtxManager`): 
+    - Required Option(s) Environment Variables: 
+        - `INPUT_CTXMANAGER_SQS_QUEUE_URL`: Queue Url form which to retrieve messages from
+    - Optional Environment Variables:
+      - `REQUEST_S3URI_KEYS`: (DEFAULT="s3_uri") comma separated string, defining the dictionary key name(s) of keys used to define S3 URI values.
+        
+        > keys may be "." (dot) separated to define keys which are nested within the incoming *request* object.
+
+    - Constructor Options:
+      - `s3uri_keys`: (DEFAULT=EnvironmentVariable "REQUEST_S3URI_KEYS") Iterable defining 1 or more the dictionary key name(s) of keys used to define S3 URI values.
+    
+        > keys may be "." (dot) separated to define keys which are nested within the incoming *request* object.
+
+- 'SQSMessageS3InputCSVPandasDataFrameCtxManager'  (`igata.handlers.aws.input.sqs.SQSMessageS3InputCSVPandasDataFrameCtxManager`):  
+    - Required Option(s) Environment Variables: 
+        - `INPUT_CTXMANAGER_SQS_QUEUE_URL`: Queue Url form which to retrieve messages from
+    - Optional Environment Variables:
+      - `REQUEST_S3URI_KEYS`: (DEFAULT="s3_uri") comma separated string, defining the dictionary key name(s) of keys used to define S3 URI values.
+        
+        > keys may be "." (dot) separated to define keys which are nested within the incoming *request* object.
+
+    - Constructor Options:
+      - `s3uri_keys`: (DEFAULT=EnvironmentVariable "REQUEST_S3URI_KEYS") Iterable defining 1 or more the dictionary key name(s) of keys used to define S3 URI values.
+    
+        > keys may be "." (dot) separated to define keys which are nested within the incoming *request* object. 
+
 ### Input Context Manager Environment Variables
 
 - `INPUT_CONTEXT_MANAGER`
 
-Available Input Context Manager(s):
+### `get_records()` info object
 
-- 'S3BucketImageInputCtxManager': [DEFAULT] Pulls IMAGE inputs from s3 bucket/key given a list of s3Uris (Ex: s3://bucket/my/key.png)
-    - Required Option(s) Environment Variables: *None*
+All "Input Context Managers" return 
 
-- 'SQSMessageS3InputImageCtxManager': 
-    - Required Option(s) Environment Variables: 
-        - `INPUT_CTXMANAGER_SQS_QUEUE_URL`: Queue Url form which to retrieve messages from
+```python
+{
+    "bucket": str,
+    "key": str,
+    "downloaded_time": float,    
+    "errors": Optional[List[str]]
+}
+```
 
-- 'SQSMessageS3InputCSVCtxManager': 
-    - Required Option(s) Environment Variables: 
-        - `INPUT_CTXMANAGER_SQS_QUEUE_URL`: Queue Url form which to retrieve messages from
+#### SQSMessageS3InputImageCtxManager Additional Info fields
+
+- "current_s3uri_key": includes the s3uri key used to retrieve the related record
+
         
-#### SQSMessageS3InputImageCtxManager SQS message Format
+### SQSMessageS3InputImageCtxManager SQS message Format
 
 ```yaml
   schema:
@@ -96,7 +150,7 @@ Available Input Context Manager(s):
         - s3_uri
 ```
 
-#### SQSMessageS3InputCSVCtxManager SQS message Format
+### SQSMessageS3InputCSVCtxManager SQS message Format
 
 ```yaml
   schema:
@@ -127,11 +181,7 @@ Available Input Context Manager(s):
 ```
 
 
-### Output Context Manager Environment Variables
-
-- `OUTPUT_CONTEXT_MANAGER`: Defines the OutputCtxManager to use. (See 'Available Output Context Managers below)
-    
-- `RESULT_RECORD_CHUNK_SIZE`: Defines the number of records that are cached before being sent to the OutputCtxManager's `put_records()` method.
+## Output Context Managers
 
 Available Output Context Manager(s):
 
@@ -154,9 +204,17 @@ Available Output Context Manager(s):
         - `OUTPUT_CTXMGR_REQUESTS_TABLENAME`: (str) Dynamodb REQUESTS Table name, 'state' field will be updated
         - `OUTPUT_CTXMGR_RESULTS_TABLENAME`: (str) Dynamodb RESULTS Table name.  Will be populated with flattened results of the model result dictionary
 
-#### DynamodbOutputCtxManager Table(s) Structure
 
-##### REQUESTS Table
+### Output Context Manager Environment Variables
+
+- `OUTPUT_CONTEXT_MANAGER`: Defines the OutputCtxManager to use. (See 'Available Output Context Managers below)
+    
+- `RESULT_RECORD_CHUNK_SIZE`: Defines the number of records that are cached before being sent to the OutputCtxManager's `put_records()` method.
+
+
+### DynamodbOutputCtxManager Table(s) Structure
+
+#### REQUESTS Table
 
 | AttributeName | Type | Is HASHKEY | Is RANGEKEY | GSI HASH_KEY | GSI RANGEKEY |
 |---------------|:----:|:----------:|:-----------:|:------------:|:------------:|
@@ -166,7 +224,7 @@ Available Output Context Manager(s):
 
 > GSI projection_type = ALL
 
-##### RESULTS Table
+#### RESULTS Table
 
 | AttributeName | Type | Is HASHKEY | Is RANGEKEY | GSI HASH_KEY | GSI RANGEKEY |
 |---------------|:----:|:----------:|:-----------:|:------------:|:------------:|
