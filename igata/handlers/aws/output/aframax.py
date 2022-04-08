@@ -64,7 +64,7 @@ class AframaxRecordOutputCtxManager(OutputCtxManagerBase):
     @staticmethod
     def compose_patch_url(aframax_url: str, record: dict) -> str:
         """compose aframax job patch url."""
-        return urljoin(aframax_url, f"/jobs/{record['request']['job_id']}")
+        return urljoin(aframax_url, f"jobs/{record['request']['job_id']}")
 
     def compose_patch_body(self, record: dict) -> dict:
         """compose actual posting body. Override here if you need."""
@@ -95,7 +95,7 @@ class AframaxRecordOutputCtxManager(OutputCtxManagerBase):
                 a_result["error"] = ""
                 a_result["message"] = response.json()
             else:
-                logger.warn(f"Patch request was processed successfully with status {response.status_code} and response {response.text}")
+                logger.warn(f"Patch request was failed with status {response.status_code} and response {response.text}")
                 summary["error_count"] += 1
                 a_result["message"] = []
                 a_result["error"] = response.text
