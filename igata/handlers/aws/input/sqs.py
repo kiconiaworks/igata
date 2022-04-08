@@ -3,19 +3,32 @@ import logging
 import time
 from collections.abc import Iterable
 from multiprocessing.pool import ThreadPool
-from typing import Dict, Generator, Tuple, Union
+from typing import Dict, Generator, List, Tuple, Union
 
 import boto3
 import numpy as np
 import pandas
 
 from .... import settings
-from ....utils import parse_s3_uri, prepare_csv_dataframe, prepare_images, s3_key_exists
+from ....utils import get_item_dot_separated, parse_s3_uri, prepare_csv_dataframe, prepare_images, s3_key_exists
 from . import InputCtxManagerBase
 
 logger = logging.getLogger("cliexecutor")
 
 SQS = boto3.resource("sqs", endpoint_url=settings.SQS_ENDPOINT, region_name=settings.AWS_REGION)
+
+
+def format_s3uri_keys(s3uri_keys: Union[List[str], str]) -> List[str]:
+    """
+    s3uri_keysを正しいフォーマット（list of strings）に直す。
+    ・入力がstring: ,区切りでリスト化し、空文字を除去
+    ・入力がlist of strings: から文字を除去
+    :param s3uri_keys: 正しいフォーマットに直したいs3uri_keys. stringかlist of strings
+    :return: list of strings
+    """
+    if isinstance(s3uri_keys, str):
+        s3uri_keys = s3uri_keys.split(",")
+    return [key for key in s3uri_keys if key != ""]
 
 
 class SQSMessageS3InputImageCtxManager(InputCtxManagerBase):
@@ -24,7 +37,7 @@ class SQSMessageS3InputImageCtxManager(InputCtxManagerBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.sqs_queue_url = kwargs.get("sqs_queue_url")
-        self.s3uri_keys = kwargs.get("s3uri_keys", settings.REQUEST_S3URI_KEYS)
+        self.s3uri_keys = format_s3uri_keys(kwargs.get("s3uri_keys", settings.REQUEST_S3URI_KEYS))
         assert isinstance(self.s3uri_keys, Iterable)
         self.max_processing_requests = kwargs.get("max_processing_requests", settings.MAX_PROCESSING_REQUESTS)
         logger.info(f"max_processing_requests: {self.max_processing_requests}")
@@ -98,7 +111,8 @@ class SQSMessageS3InputImageCtxManager(InputCtxManagerBase):
             for request in all_processing_requests:
                 logger.info(f"Processing request: {request}")
                 for s3uri_key in self.s3uri_keys:
-                    s3uri = request[s3uri_key]
+                    # s3uri = request[s3uri_key]
+                    s3uri = get_item_dot_separated(request, s3uri_key, raise_key_error=True)
                     logger.debug(f"s3uri: {s3uri}")
                     bucket, key = parse_s3_uri(s3uri)
 
@@ -151,9 +165,7 @@ class SQSMessageS3InputCSVPandasDataFrameCtxManager(InputCtxManagerBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.sqs_queue_url = kwargs.get("sqs_queue_url")
-        self.s3uri_keys = kwargs.get("s3uri_keys", settings.REQUEST_S3URI_KEYS)
-        if "," in self.s3uri_keys:
-            self.s3uri_keys = self.s3uri_keys.split(",")
+        self.s3uri_keys = format_s3uri_keys(kwargs.get("s3uri_keys", settings.REQUEST_S3URI_KEYS))
         logger.info(f"s3uri_keys={self.s3uri_keys}")
         assert isinstance(self.s3uri_keys, Iterable)
         self.max_processing_requests = kwargs.get("max_processing_requests", settings.MAX_PROCESSING_REQUESTS)
@@ -243,7 +255,7 @@ class SQSMessageS3InputCSVPandasDataFrameCtxManager(InputCtxManagerBase):
                 args = []
                 s3uri_key_mapping = {}
                 for s3uri_key in self.s3uri_keys:
-                    s3uri = request[s3uri_key]
+                    s3uri = get_item_dot_separated(request, s3uri_key, raise_key_error=True)
                     bucket, key = parse_s3_uri(s3uri)
                     read_csv_kwargs = self.get_pandas_read_csv_kwargs(key)
                     logger.info(f"parser_s3_uri() bucket: {bucket}")
