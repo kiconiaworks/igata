@@ -62,19 +62,19 @@ class AframaxRecordOutputCtxManager(OutputCtxManagerBase):
         assert "prediction" in record.keys(), f"{cls.__name__} requires result record contains `prediction` key."
 
     @staticmethod
-    def compose_patch_url(aframax_url: str, record: dict) -> str:
-        """compose aframax job patch url."""
+    def compose_put_url(aframax_url: str, record: dict) -> str:
+        """compose aframax job put url."""
         return urljoin(aframax_url, f"jobs/{record['request']['job_id']}")
 
-    def compose_patch_body(self, record: dict) -> dict:
+    def compose_put_body(self, record: dict) -> dict:
         """compose actual posting body. Override here if you need."""
-        patch_body = deepcopy(record["request"]["request_payload"])
-        patch_body[self.aframax_prediction_key] = record["prediction"]
-        return patch_body
+        put_body = deepcopy(record["request"]["request_payload"])
+        put_body[self.aframax_prediction_key] = record["prediction"]
+        return put_body
 
     def put_records(self, records: Union[dict, list]) -> dict:
         """
-        Call to send result defined in JSON parsable `message_body` to SQS.
+        Call to send result defined in JSON parsable `message_body` to Aframax service.
 
         .. note::
 
@@ -84,18 +84,18 @@ class AframaxRecordOutputCtxManager(OutputCtxManagerBase):
         summary = {"success_count": 0, "error_count": 0, "details": []}
         for record in records:
             self.validate_result_record(record)
-            patch_body = self.compose_patch_body(record)
-            patch_url = self.compose_patch_url(self.aframax_url, record)
-            logger.info(f"Sending Patch request to Aframax at {patch_url} with body {patch_body}")
-            response = requests.patch(patch_url, json=patch_body, auth=HTTPBasicAuth(self.aframax_basicauth_user, self.aframax_basicauth_password))
+            put_body = self.compose_put_body(record)
+            put_url = self.compose_put_url(self.aframax_url, record)
+            logger.info(f"Sending put request to Aframax at {put_url} with body {put_body}")
+            response = requests.put(put_url, json=put_body, auth=HTTPBasicAuth(self.aframax_basicauth_user, self.aframax_basicauth_password))
             a_result = {"status_code": response.status_code}
             if 200 <= response.status_code <= 300:
-                logger.info(f"Patch request was processed successfully with response {response.text}")
+                logger.info(f"Put request was processed successfully with response {response.text}")
                 summary["success_count"] += 1
                 a_result["error"] = ""
                 a_result["message"] = response.json()
             else:
-                logger.warn(f"Patch request was failed with status {response.status_code} and response {response.text}")
+                logger.warning(f"Put request was failed with status {response.status_code} and response {response.text}")
                 summary["error_count"] += 1
                 a_result["message"] = []
                 a_result["error"] = response.text
